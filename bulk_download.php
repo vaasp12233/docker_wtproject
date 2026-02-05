@@ -34,14 +34,13 @@ mysqli_stmt_bind_param($subjects_stmt, "s", $faculty_id);
 mysqli_stmt_execute($subjects_stmt);
 $subjects_result = mysqli_stmt_get_result($subjects_stmt);
 
-// Store subjects in array for later use
+// Store subjects in array for later use and reset pointer
 $subjects_array = [];
+$subjects_for_display = []; // Store for display use
 while ($subject = mysqli_fetch_assoc($subjects_result)) {
     $subjects_array[$subject['subject_id']] = $subject;
+    $subjects_for_display[] = $subject; // Store for display
 }
-
-// Reset pointer for display
-mysqli_data_seek($subjects_result, 0);
 
 // Get all sections
 $sections_query = "SELECT DISTINCT section FROM students WHERE section != '' ORDER BY section";
@@ -285,11 +284,17 @@ if (isset($_GET['export'])) {
     
     // Validate export type
     if (!in_array($export_type, ['csv', 'excel', 'print'])) {
+        http_response_code(400);
         die("Invalid export type");
     }
     
     // Generate CSV data
     if ($export_type == 'csv') {
+        // Clean any previous output
+        if (ob_get_length()) {
+            ob_clean();
+        }
+        
         // Set headers for CSV download
         header('Content-Type: text/csv; charset=utf-8');
         header('Content-Disposition: attachment; filename=360_students_attendance_' . date('Y-m-d') . '.csv');
@@ -370,6 +375,11 @@ if (isset($_GET['export'])) {
     
     // Generate Excel (HTML table format that Excel can open)
     elseif ($export_type == 'excel') {
+        // Clean any previous output
+        if (ob_get_length()) {
+            ob_clean();
+        }
+        
         header('Content-Type: application/vnd.ms-excel');
         header('Content-Disposition: attachment; filename="360_students_attendance_' . date('Y-m-d') . '.xls"');
         
@@ -485,10 +495,16 @@ if (isset($_GET['export'])) {
     
     // Print function
     elseif ($export_type == 'print') {
+        // Clean any previous output
+        if (ob_get_length()) {
+            ob_clean();
+        }
+        
         echo '<!DOCTYPE html>
         <html>
         <head>
             <title>360° Students Attendance Report - Print</title>
+            <meta charset="UTF-8">
             <style>
                 body { font-family: Arial, sans-serif; margin: 20px; }
                 h1, h2, h3 { color: #333; }
@@ -625,7 +641,7 @@ if (isset($_GET['export'])) {
             
             <script>
                 window.onload = function() {
-                    // Auto-print only if the user hasn't already printed
+                    // Auto-print only if the user hasn\'t already printed
                     if (!window.matchMedia || !window.matchMedia("print").matches) {
                         window.print();
                     }
@@ -949,4 +965,10 @@ if (isset($_GET['export'])) {
 </div>
 
 <?php include 'footer.php'; ?>
-<?php ob_end_flush(); ?>
+
+<?php
+// Clean output buffering properly
+if (ob_get_length()) {
+    ob_end_flush();
+}
+// Don't put any text after the closing PHP tag
