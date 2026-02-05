@@ -2,7 +2,6 @@
 // student_dashboard.php - Fixed for Render + Aiven
 
 // ==================== CRITICAL: Start output buffering ====================
-// This prevents "headers already sent" errors
 if (!ob_get_level()) {
     ob_start();
 }
@@ -10,6 +9,7 @@ if (!ob_get_level()) {
 // ==================== Configure session for Render ====================
 ini_set('session.save_path', '/tmp');
 ini_set('session.cookie_lifetime', 86400);
+ini_set('session.gc_maxlifetime', 86400);
 
 // ==================== Start session ====================
 if (session_status() === PHP_SESSION_NONE) {
@@ -21,7 +21,6 @@ require_once 'config.php';
 
 // ==================== Security check ====================
 if (!isset($_SESSION['logged_in']) || $_SESSION['logged_in'] !== true) {
-    // Clean buffer before redirect
     if (ob_get_length() > 0) {
         ob_end_clean();
     }
@@ -31,7 +30,6 @@ if (!isset($_SESSION['logged_in']) || $_SESSION['logged_in'] !== true) {
 
 // ==================== Role check ====================
 if (!isset($_SESSION['role']) || $_SESSION['role'] !== 'student') {
-    // Clean buffer before redirect
     if (ob_get_length() > 0) {
         ob_end_clean();
     }
@@ -42,7 +40,6 @@ if (!isset($_SESSION['role']) || $_SESSION['role'] !== 'student') {
 // ==================== Get student ID ====================
 $student_id = isset($_SESSION['student_id']) ? $_SESSION['student_id'] : null;
 if (!$student_id) {
-    // Clean buffer before redirect
     if (ob_get_length() > 0) {
         ob_end_clean();
     }
@@ -51,14 +48,12 @@ if (!$student_id) {
 }
 
 // ==================== Clean buffer before output ====================
-// Keep buffer for HTML output, but clean any stray output
 if (ob_get_length() > 0 && !headers_sent()) {
     ob_end_clean();
     ob_start();
 }
 
 // ==================== Database operations ====================
-// Initialize variables
 $student = null;
 $attendance_result = null;
 $error = '';
@@ -110,8 +105,6 @@ $page_title = "Student Dashboard";
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <!-- Font Awesome -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <!-- QR Code Library -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
     
     <!-- Custom Header Styles -->
     <style>
@@ -173,38 +166,6 @@ $page_title = "Student Dashboard";
             font-size: 0.7rem;
             padding: 2px 6px;
             border-radius: 10px;
-        }
-        
-        /* QR Code Specific Styles */
-        .qrcode-wrapper {
-            text-align: center;
-            background: white;
-            border-radius: 10px;
-            padding: 20px;
-            margin: 0 auto;
-        }
-        
-        .dark-mode .qrcode-wrapper {
-            background: white !important;
-            box-shadow: 0 4px 15px rgba(0,0,0,0.2);
-        }
-        
-        #qrcode {
-            padding: 10px;
-            background: white;
-            border-radius: 8px;
-            display: inline-block;
-            margin: 0 auto;
-        }
-        
-        #qrcode canvas {
-            display: block;
-            margin: 0 auto;
-        }
-        
-        /* Dark mode overrides for QR code */
-        body.dark-mode #qrcode {
-            background: white !important;
         }
         
         /* Body and main styles */
@@ -422,6 +383,22 @@ $page_title = "Student Dashboard";
             background: #1a1a1a !important;
         }
         
+        /* Translation Button */
+        .translation-btn {
+            background: rgba(255,255,255,0.1);
+            border: 1px solid rgba(255,255,255,0.2);
+            color: white;
+            border-radius: 20px;
+            padding: 5px 15px;
+            font-size: 0.9rem;
+            transition: all 0.3s ease;
+        }
+        
+        .translation-btn:hover {
+            background: rgba(255,255,255,0.2);
+            transform: scale(1.05);
+        }
+        
         /* Additional Sections */
         .quick-actions {
             margin-top: 20px;
@@ -578,7 +555,7 @@ $page_title = "Student Dashboard";
             <?php endif; ?>
             
             <div class="row">
-                <!-- Left Column: Profile & QR Code -->
+                <!-- Left Column: Profile Only (QR Code Section Removed) -->
                 <div class="col-lg-4 col-md-12 mb-4">
                     <!-- Profile Card -->
                     <div class="card shadow-lg">
@@ -628,33 +605,39 @@ $page_title = "Student Dashboard";
                         </div>
                     </div>
 
-                    <!-- QR Code Card -->
+                    <!-- Attendance Statistics Card -->
                     <div class="card shadow-lg mt-4">
-                        <div class="card-header bg-success text-white">
-                            <h5 class="mb-0"><i class="fas fa-qrcode me-2"></i>My QR Code</h5>
+                        <div class="card-header bg-info text-white">
+                            <h5 class="mb-0"><i class="fas fa-chart-pie me-2"></i>Attendance Stats</h5>
                         </div>
-                        <div class="card-body text-center">
-                            <div class="qrcode-wrapper">
-                                <?php if ($student && !empty($student['qr_content'])): ?>
-                                    <div id="qrcode" class="mb-3"></div>
-                                    <p class="text-muted mb-3">
-                                        <small>Scan this QR code during class to mark attendance</small>
-                                    </p>
-                                    <div class="d-grid gap-2">
-                                        <button onclick="downloadQR()" class="btn btn-success">
-                                            <i class="fas fa-download me-2"></i> Download QR Code
-                                        </button>
-                                        <button onclick="shareQR()" class="btn btn-outline-success">
-                                            <i class="fas fa-share-alt me-2"></i> Share QR Code
-                                        </button>
+                        <div class="card-body">
+                            <div class="row text-center">
+                                <div class="col-4">
+                                    <div class="mb-2">
+                                        <i class="fas fa-calendar-check fa-2x text-primary"></i>
                                     </div>
-                                <?php elseif ($student): ?>
-                                    <div class="alert alert-info">
-                                        <i class="fas fa-info-circle me-2"></i>
-                                        <p class="mb-0">QR Code not generated yet.</p>
-                                        <small>Contact your department administrator to generate your QR code.</small>
+                                    <h5 id="todayAttendance">0</h5>
+                                    <small>Today</small>
+                                </div>
+                                <div class="col-4">
+                                    <div class="mb-2">
+                                        <i class="fas fa-percentage fa-2x text-success"></i>
                                     </div>
-                                <?php endif; ?>
+                                    <h5 id="attendancePercent">0%</h5>
+                                    <small>Overall</small>
+                                </div>
+                                <div class="col-4">
+                                    <div class="mb-2">
+                                        <i class="fas fa-clock fa-2x text-warning"></i>
+                                    </div>
+                                    <h5 id="lateCount">0</h5>
+                                    <small>Late</small>
+                                </div>
+                            </div>
+                            <div class="mt-3">
+                                <a href="attendance_viewer.php" class="btn btn-outline-info w-100">
+                                    <i class="fas fa-chart-line me-2"></i> View Detailed Report
+                                </a>
                             </div>
                         </div>
                     </div>
@@ -678,36 +661,11 @@ $page_title = "Student Dashboard";
                                             }
                                         ?>!
                                     </h4>
-                                    <p class="mb-0">Use your QR code to mark attendance during class sessions.</p>
+                                    <p class="mb-0">Track your attendance and view your academic schedule.</p>
                                 </div>
                                 <div class="col-md-4 text-center">
                                     <i class="fas fa-user-graduate fa-4x text-white opacity-75"></i>
                                 </div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Quick Stats -->
-                    <div class="row mb-4">
-                        <div class="col-md-4 mb-3">
-                            <div class="stat-card">
-                                <i class="fas fa-calendar-check text-primary"></i>
-                                <h3 id="todayAttendance">3</h3>
-                                <p>Today's Classes</p>
-                            </div>
-                        </div>
-                        <div class="col-md-4 mb-3">
-                            <div class="stat-card">
-                                <i class="fas fa-percentage text-success"></i>
-                                <h3 id="attendancePercent">92%</h3>
-                                <p>Overall Attendance</p>
-                            </div>
-                        </div>
-                        <div class="col-md-4 mb-3">
-                            <div class="stat-card">
-                                <i class="fas fa-clock text-warning"></i>
-                                <h3 id="lateCount">1</h3>
-                                <p>Late Arrivals</p>
                             </div>
                         </div>
                     </div>
@@ -719,11 +677,11 @@ $page_title = "Student Dashboard";
                         </div>
                         <div class="col-md-3 col-6 mb-3">
                             <div class="action-card">
-                                <i class="fas fa-qrcode"></i>
-                                <h5>Scan QR</h5>
-                                <p>Mark today's attendance</p>
-                                <button class="btn btn-sm btn-primary" onclick="openQRScanner()">
-                                    Open Scanner
+                                <i class="fas fa-user-check"></i>
+                                <h5>Mark Attendance</h5>
+                                <p>Attend your classes</p>
+                                <button class="btn btn-sm btn-primary" onclick="openAttendance()">
+                                    Mark Now
                                 </button>
                             </div>
                         </div>
@@ -742,19 +700,20 @@ $page_title = "Student Dashboard";
                                 <i class="fas fa-calendar-alt"></i>
                                 <h5>Timetable</h5>
                                 <p>View class schedule</p>
-                                <button class="btn btn-sm btn-info" onclick="viewTimetable()">
+                                <!-- CHANGED: Link to timetable.php -->
+                                <a href="timetable.php" class="btn btn-sm btn-info">
                                     View Schedule
-                                </button>
+                                </a>
                             </div>
                         </div>
                         <div class="col-md-3 col-6 mb-3">
                             <div class="action-card">
-                                <i class="fas fa-file-pdf"></i>
-                                <h5>Documents</h5>
-                                <p>Download certificates</p>
-                                <button class="btn btn-sm btn-warning" onclick="downloadDocs()">
-                                    Download
-                                </button>
+                                <i class="fas fa-book"></i>
+                                <h5>Study Materials</h5>
+                                <p>Access course materials</p>
+                                <a href="materials.php" class="btn btn-sm btn-warning">
+                                    Access
+                                </a>
                             </div>
                         </div>
                     </div>
@@ -815,9 +774,9 @@ $page_title = "Student Dashboard";
                                 <div class="text-center py-5">
                                     <i class="fas fa-clipboard-list fa-4x text-muted mb-3"></i>
                                     <h5 class="text-muted">No attendance records found</h5>
-                                    <p class="text-muted mb-4">Your attendance will appear here after scanning QR codes in class</p>
+                                    <p class="text-muted mb-4">Your attendance will appear here after marking attendance in class</p>
                                     <a href="how_to_use.php" class="btn btn-outline-primary">
-                                        <i class="fas fa-question-circle me-2"></i> How to use QR Code
+                                        <i class="fas fa-question-circle me-2"></i> How to mark attendance
                                     </a>
                                 </div>
                             <?php endif; ?>
@@ -831,11 +790,11 @@ $page_title = "Student Dashboard";
     <!-- Footer -->
     <footer class="mt-5 py-4 bg-dark text-white">
         <div class="container">
-            <div class="row">
+            <div class="row align-items-center">
                 <div class="col-md-6">
                     <h6>CSE Attendance System</h6>
                     <p class="mb-0 small">Department of Computer Science</p>
-                    <p class="mb-0 small">QR Code Based Attendance Management</p>
+                    <p class="mb-0 small">Attendance Management System</p>
                 </div>
                 <div class="col-md-6 text-md-end">
                     <p class="mb-0 small">&copy; <?php echo date('Y'); ?> CSE Department</p>
@@ -844,6 +803,10 @@ $page_title = "Student Dashboard";
                         <span id="currentTime"></span> | 
                         <span id="currentDate"></span>
                     </p>
+                    <!-- ADDED: Translation Button -->
+                    <button class="translation-btn mt-2" id="translateBtn">
+                        <i class="fas fa-language me-1"></i> Translate
+                    </button>
                 </div>
             </div>
         </div>
@@ -858,6 +821,7 @@ $page_title = "Student Dashboard";
         const modeToggle = document.getElementById('modeToggle');
         const modeIcon = document.getElementById('modeIcon');
         const body = document.body;
+        const translateBtn = document.getElementById('translateBtn');
         
         // Check for saved theme preference
         const savedTheme = localStorage.getItem('theme') || 'light';
@@ -882,21 +846,27 @@ $page_title = "Student Dashboard";
             }
         });
         
-        // Generate QR code
-        <?php if ($student && !empty($student['qr_content'])): ?>
-        // Clear any existing QR code
-        document.getElementById('qrcode').innerHTML = '';
-        
-        // Generate new QR code
-        var qrcode = new QRCode(document.getElementById("qrcode"), {
-            text: "<?php echo addslashes($student['qr_content']); ?>",
-            width: 200,
-            height: 200,
-            colorDark: "#000000",
-            colorLight: "#ffffff",
-            correctLevel: QRCode.CorrectLevel.H
-        });
-        <?php endif; ?>
+        // Translation Button Handler
+        if (translateBtn) {
+            translateBtn.addEventListener('click', function() {
+                // Toggle between English and another language
+                const isEnglish = !document.documentElement.hasAttribute('data-translated');
+                
+                if (isEnglish) {
+                    // Translate to another language (example: Arabic/Spanish)
+                    translatePage('ar'); // Change to your desired language code
+                    translateBtn.innerHTML = '<i class="fas fa-language me-1"></i> English';
+                    document.documentElement.setAttribute('data-translated', 'true');
+                    document.documentElement.setAttribute('lang', 'ar');
+                } else {
+                    // Back to English
+                    translatePage('en');
+                    translateBtn.innerHTML = '<i class="fas fa-language me-1"></i> Translate';
+                    document.documentElement.removeAttribute('data-translated');
+                    document.documentElement.setAttribute('lang', 'en');
+                }
+            });
+        }
         
         // Update current time and date
         function updateDateTime() {
@@ -907,6 +877,9 @@ $page_title = "Student Dashboard";
         updateDateTime();
         setInterval(updateDateTime, 1000);
         
+        // Load attendance statistics via AJAX
+        loadAttendanceStats();
+        
         // Initialize tooltips
         var tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
         var tooltipList = tooltipTriggerList.map(function (tooltipTriggerEl) {
@@ -914,84 +887,113 @@ $page_title = "Student Dashboard";
         });
     });
     
-    // QR Code Functions
-    <?php if ($student && !empty($student['qr_content'])): ?>
-    function downloadQR() {
-        var canvas = document.querySelector("#qrcode canvas");
-        if (!canvas) {
-            alert('QR code not found!');
-            return;
-        }
-        
-        // Create temporary canvas with white background
-        var tempCanvas = document.createElement('canvas');
-        var ctx = tempCanvas.getContext('2d');
-        tempCanvas.width = canvas.width + 40; // Add padding
-        tempCanvas.height = canvas.height + 100; // Add space for text
-        
-        // White background
-        ctx.fillStyle = '#ffffff';
-        ctx.fillRect(0, 0, tempCanvas.width, tempCanvas.height);
-        
-        // Draw QR code centered
-        ctx.drawImage(canvas, 20, 20);
-        
-        // Add text below QR code
-        ctx.fillStyle = '#000000';
-        ctx.font = '14px Arial';
-        ctx.textAlign = 'center';
-        ctx.fillText('Student QR Code', tempCanvas.width/2, canvas.height + 50);
-        ctx.font = '12px Arial';
-        ctx.fillText('Scan to mark attendance', tempCanvas.width/2, canvas.height + 70);
-        
-        // Create download link
-        var link = document.createElement('a');
-        link.download = 'Student_QR_Code_<?php echo $student_id; ?>.png';
-        link.href = tempCanvas.toDataURL("image/png");
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
+    // Load attendance statistics
+    function loadAttendanceStats() {
+        // This would typically be an AJAX call to get real data
+        // For now, we'll simulate with placeholder data
+        setTimeout(() => {
+            document.getElementById('todayAttendance').textContent = '2';
+            document.getElementById('attendancePercent').textContent = '85%';
+            document.getElementById('lateCount').textContent = '1';
+        }, 500);
     }
     
-    function shareQR() {
-        if (navigator.share) {
-            navigator.share({
-                title: 'My Attendance QR Code',
-                text: 'Scan this QR code to mark my attendance',
-                url: window.location.href
-            }).catch(console.error);
-        } else {
-            alert('Share feature is not supported in your browser. Download the QR code instead.');
-        }
+    // Translation function
+    function translatePage(targetLang) {
+        const translations = {
+            'en': {
+                'CSE Attendance System': 'CSE Attendance System',
+                'Department of Computer Science': 'Department of Computer Science',
+                'Attendance Management System': 'Attendance Management System',
+                'Student ID': 'Student ID',
+                'Welcome back': 'Welcome back',
+                'Track your attendance': 'Track your attendance and view your academic schedule',
+                'Quick Actions': 'Quick Actions',
+                'Mark Attendance': 'Mark Attendance',
+                'Attend your classes': 'Attend your classes',
+                'Reports': 'Reports',
+                'View attendance analytics': 'View attendance analytics',
+                'Timetable': 'Timetable',
+                'View class schedule': 'View class schedule',
+                'Study Materials': 'Study Materials',
+                'Access course materials': 'Access course materials',
+                'Recent Attendance Records': 'Recent Attendance Records',
+                'Date': 'Date',
+                'Subject': 'Subject',
+                'Session Time': 'Session Time',
+                'Marked Time': 'Marked Time',
+                'Status': 'Status',
+                'No attendance records found': 'No attendance records found',
+                'Your attendance will appear here': 'Your attendance will appear here after marking attendance in class'
+            },
+            'ar': {
+                'CSE Attendance System': 'نظام الحضور لقسم علوم الحاسوب',
+                'Department of Computer Science': 'قسم علوم الحاسوب',
+                'Attendance Management System': 'نظام إدارة الحضور',
+                'Student ID': 'رقم الطالب',
+                'Welcome back': 'مرحبًا بعودتك',
+                'Track your attendance': 'تتبع حضورك وراجع جدولك الأكاديمي',
+                'Quick Actions': 'إجراءات سريعة',
+                'Mark Attendance': 'تسجيل الحضور',
+                'Attend your classes': 'حضر فصولك الدراسية',
+                'Reports': 'تقارير',
+                'View attendance analytics': 'عرض تحليلات الحضور',
+                'Timetable': 'الجدول الزمني',
+                'View class schedule': 'عرض جدول الحصص',
+                'Study Materials': 'المواد الدراسية',
+                'Access course materials': 'الوصول إلى المواد الدراسية',
+                'Recent Attendance Records': 'سجلات الحضور الحديثة',
+                'Date': 'التاريخ',
+                'Subject': 'المادة',
+                'Session Time': 'وقت الحصة',
+                'Marked Time': 'وقت التسجيل',
+                'Status': 'الحالة',
+                'No attendance records found': 'لم يتم العثور على سجلات حضور',
+                'Your attendance will appear here': 'سيظهر حضورك هنا بعد التسجيل في الفصل'
+            }
+        };
+        
+        // Get current language
+        const currentLang = document.documentElement.getAttribute('lang') || 'en';
+        const trans = translations[targetLang] || translations['en'];
+        
+        // Translate all elements with data-translate attribute
+        document.querySelectorAll('[data-translate]').forEach(element => {
+            const key = element.getAttribute('data-translate');
+            if (trans[key]) {
+                element.textContent = trans[key];
+            }
+        });
+        
+        // Translate common text
+        const elementsToTranslate = [
+            { selector: 'footer h6', key: 'CSE Attendance System' },
+            { selector: 'footer p:nth-child(2)', key: 'Department of Computer Science' },
+            { selector: 'footer p:nth-child(3)', key: 'Attendance Management System' },
+            { selector: '.welcome-card h4', key: 'Welcome back' },
+            { selector: '.welcome-card p', key: 'Track your attendance' },
+            { selector: '.quick-actions h5', key: 'Quick Actions' },
+            // Add more selectors as needed
+        ];
+        
+        elementsToTranslate.forEach(item => {
+            const element = document.querySelector(item.selector);
+            if (element && trans[item.key]) {
+                element.textContent = trans[item.key];
+            }
+        });
     }
-    <?php endif; ?>
     
     // Quick Action Functions
-    function openQRScanner() {
-        alert('QR Scanner would open here. On mobile devices, this would access the camera.');
-        // In a real app: window.location.href = 'qr_scanner.php';
-    }
-    
-    function viewTimetable() {
-        alert('Timetable feature would open here.');
-        // In a real app: window.location.href = 'timetable.php';
-    }
-    
-    function downloadDocs() {
-        alert('Document download feature would open here.');
-        // In a real app: window.location.href = 'documents.php';
+    function openAttendance() {
+        alert('Attendance marking feature would open here.');
+        // In a real app: window.location.href = 'mark_attendance.php';
     }
     
     function showNotifications() {
         alert('Notifications panel would open here. You have 3 new notifications.');
         // In a real app: window.location.href = 'notifications.php';
     }
-    
-    // Auto-refresh attendance every 30 seconds
-    setInterval(function() {
-        console.log('Auto-refresh triggered');
-        // You can add AJAX call here to refresh attendance data
-    }, 30000);
     </script>
 </body>
 </html>
