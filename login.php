@@ -1,25 +1,32 @@
 <?php
-// Start session BEFORE any output
+// Start session at the VERY beginning
 session_start();
 
-require_once 'config.php'; 
+// Then include config
+require_once 'config.php';
+
+// Debug: Check if session started
+if (session_status() !== PHP_SESSION_ACTIVE) {
+    die('Session failed to start');
+}
 
 // Redirect if already logged in
 if (isset($_SESSION['logged_in'])) {
     if ($_SESSION['role'] == 'faculty') {
         header('Location: faculty_dashboard.php');
+        exit;
     } else {
         header('Location: student_dashboard.php');
+        exit;
     }
-    exit;
 }
 
 // Handle Traditional Login
 $error = '';
 if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['login'])) {
-    $email = $conn->real_escape_string($_POST['email']);
-    $password = $conn->real_escape_string($_POST['password']);
-    $role = $conn->real_escape_string($_POST['role']);
+    $email = mysqli_real_escape_string($conn, $_POST['email']);
+    $password = mysqli_real_escape_string($conn, $_POST['password']);
+    $role = mysqli_real_escape_string($conn, $_POST['role']);
     
     if (empty($email) || empty($password)) {
         $error = "Please enter both email and password.";
@@ -37,7 +44,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['login'])) {
                         FROM faculty WHERE faculty_email = '$email'";
                 $result = mysqli_query($conn, $sql);
                 
-                if (mysqli_num_rows($result) > 0) {
+                if ($result && mysqli_num_rows($result) > 0) {
                     $user = mysqli_fetch_assoc($result);
                     
                     // Check password (custom or default)
@@ -80,7 +87,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['login'])) {
                         FROM students WHERE student_email = '$email'";
                 $result = mysqli_query($conn, $sql);
                 
-                if (mysqli_num_rows($result) > 0) {
+                if ($result && mysqli_num_rows($result) > 0) {
                     $user = mysqli_fetch_assoc($result);
                     
                     // Check if password matches the part before @ in email
@@ -105,7 +112,6 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['login'])) {
     }
 }
 ?>
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -245,7 +251,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['login'])) {
         </form>
     </div>
     
-    <!-- SIMPLE TRANSLATE BUTTON - WORKS EVERY TIME -->
+    <!-- SIMPLE TRANSLATE BUTTON -->
     <button onclick="translatePage()" id="translateBtn" 
             style="position: fixed; bottom: 25px; right: 25px; z-index: 10000;
                    width: 60px; height: 60px; background: linear-gradient(135deg, #1a73e8, #0d62d9);
@@ -282,11 +288,9 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['login'])) {
             }
         }
         
-        // SIMPLE WORKING TRANSLATE FUNCTION
         function translatePage() {
             // Try Google Translate first
             if (window.google && google.translate && google.translate.TranslateElement) {
-                // If Google Translate is already loaded, use it
                 var translateDiv = document.getElementById('google_translate_element');
                 if (!translateDiv) {
                     translateDiv = document.createElement('div');
@@ -299,7 +303,6 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['login'])) {
                     document.body.appendChild(translateDiv);
                 }
                 
-                // Initialize Google Translate
                 new google.translate.TranslateElement({
                     pageLanguage: 'en',
                     includedLanguages: 'en,hi,te',
@@ -307,7 +310,6 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['login'])) {
                     autoDisplay: false
                 }, 'google_translate_element');
                 
-                // Trigger the dropdown
                 setTimeout(function() {
                     var googleBtn = document.querySelector('.goog-te-menu-value');
                     if (googleBtn) {
@@ -316,12 +318,10 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['login'])) {
                 }, 100);
                 
             } else {
-                // Load Google Translate if not loaded
                 var script = document.createElement('script');
                 script.src = 'https://translate.google.com/translate_a/element.js?cb=initGoogleTranslate';
                 document.head.appendChild(script);
                 
-                // Define the callback
                 window.initGoogleTranslate = function() {
                     var translateDiv = document.getElementById('google_translate_element');
                     if (!translateDiv) {
@@ -342,7 +342,6 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['login'])) {
                         autoDisplay: false
                     }, 'google_translate_element');
                     
-                    // Trigger the dropdown
                     setTimeout(function() {
                         var googleBtn = document.querySelector('.goog-te-menu-value');
                         if (googleBtn) {
@@ -352,7 +351,6 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['login'])) {
                 };
             }
             
-            // Button animation
             const btn = document.getElementById('translateBtn');
             btn.style.transform = 'scale(0.9)';
             setTimeout(() => {
@@ -360,7 +358,6 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['login'])) {
             }, 150);
         }
         
-        // Button hover effects
         const translateBtn = document.getElementById('translateBtn');
         translateBtn.addEventListener('mouseenter', function() {
             this.style.transform = 'scale(1.1)';
@@ -374,7 +371,6 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['login'])) {
             this.style.background = 'linear-gradient(135deg, #1a73e8, #0d62d9)';
         });
         
-        // Add tooltip
         const tooltip = document.createElement('div');
         tooltip.textContent = 'Translate';
         tooltip.style.cssText = `
@@ -408,21 +404,10 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['login'])) {
     </script>
     
     <style>
-        /* Hide Google Translate elements */
-        .goog-te-banner-frame {
-            display: none !important;
-        }
+        .goog-te-banner-frame { display: none !important; }
+        .skiptranslate { display: none !important; }
+        body { top: 0 !important; position: static !important; }
         
-        .skiptranslate {
-            display: none !important;
-        }
-        
-        body {
-            top: 0 !important;
-            position: static !important;
-        }
-        
-        /* Style Google Translate dropdown */
         .goog-te-menu-frame {
             border-radius: 12px !important;
             box-shadow: 0 8px 32px rgba(0, 0, 0, 0.15) !important;
@@ -452,12 +437,8 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['login'])) {
             color: #1a73e8 !important;
         }
         
-        /* Hide Google logo */
-        .goog-logo-link {
-            display: none !important;
-        }
+        .goog-logo-link { display: none !important; }
         
-        /* Tooltip arrow */
         #translateBtn div:last-child:after {
             content: '';
             position: absolute;
