@@ -1,4 +1,7 @@
 <?php
+// Start session BEFORE any output
+session_start();
+
 require_once 'config.php'; 
 
 // Redirect if already logged in
@@ -200,7 +203,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['login'])) {
         <?php if ($error): ?>
             <div class="alert alert-danger">
                 <i class="fas fa-exclamation-triangle me-2"></i>
-                <?php echo $error; ?>
+                <?php echo htmlspecialchars($error); ?>
             </div>
         <?php endif; ?>
         
@@ -225,12 +228,8 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['login'])) {
             <div class="mb-3">
                 <label class="form-label">Password</label>
                 <input type="password" name="password" class="form-control" placeholder="Enter password" required>
-                <small class="text-muted">
-                    <?php if (isset($_GET['role']) && $_GET['role'] == 'faculty'): ?>
-                        Enter your custom password or default (part before @)
-                    <?php else: ?>
-                        Password is the part before @ in your email
-                    <?php endif; ?>
+                <small class="text-muted" id="passwordHint">
+                    Enter your custom password or default (part before @)
                 </small>
             </div>
             
@@ -263,7 +262,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['login'])) {
             const facultyBtn = document.getElementById('facultyBtn');
             const studentBtn = document.getElementById('studentBtn');
             const selectedRole = document.getElementById('selectedRole');
-            const passwordHint = document.querySelector('.mb-3:nth-child(3) small');
+            const passwordHint = document.getElementById('passwordHint');
             
             facultyBtn.classList.remove('active');
             studentBtn.classList.remove('active');
