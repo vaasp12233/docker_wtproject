@@ -21,6 +21,20 @@
                     <p class="mb-0">
                         <i class="fas fa-envelope me-1"></i> cse-attendance@college.edu
                     </p>
+                    <!-- LIVE TIME ADDED HERE -->
+                    <p class="mb-0 mt-2">
+                        <i class="fas fa-clock me-1"></i>
+                        <span id="liveTime" style="font-family: monospace; font-weight: 500;">
+                            Loading time...
+                        </span>
+                    </p>
+                    <!-- Current Date -->
+                    <p class="mb-0">
+                        <i class="fas fa-calendar-day me-1"></i>
+                        <span id="currentDate">
+                            <?php echo date('l, F j, Y'); ?>
+                        </span>
+                    </p>
                 </div>
             </div>
         </div>
@@ -35,6 +49,52 @@
         echo $custom_scripts;
     endif; 
     ?>
+    
+    <!-- Live Time Script -->
+    <script>
+    // Function to update live time
+    function updateLiveTime() {
+        const now = new Date();
+        
+        // Format time as HH:MM:SS AM/PM
+        let hours = now.getHours();
+        let minutes = now.getMinutes();
+        let seconds = now.getSeconds();
+        const ampm = hours >= 12 ? 'PM' : 'AM';
+        
+        // Convert to 12-hour format
+        hours = hours % 12;
+        hours = hours ? hours : 12; // 0 should be 12
+        
+        // Add leading zeros
+        minutes = minutes < 10 ? '0' + minutes : minutes;
+        seconds = seconds < 10 ? '0' + seconds : seconds;
+        
+        // Format the time string
+        const timeString = `${hours}:${minutes}:${seconds} ${ampm}`;
+        
+        // Update the element
+        document.getElementById('liveTime').textContent = timeString;
+        
+        // Update the date if it's a new day
+        const options = { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' };
+        document.getElementById('currentDate').textContent = now.toLocaleDateString('en-US', options);
+        
+        // Optional: Add a blinking colon effect
+        const colonElement = document.getElementById('liveTime');
+        if (seconds % 2 === 0) {
+            colonElement.style.opacity = '1';
+        } else {
+            colonElement.style.opacity = '0.9';
+        }
+    }
+    
+    // Start updating time immediately and every second
+    document.addEventListener('DOMContentLoaded', function() {
+        updateLiveTime();
+        setInterval(updateLiveTime, 1000);
+    });
+    </script>
     
     <!-- Google Translate Widget -->
     <div id="google_translate_element" style="position: fixed; bottom: 20px; right: 20px; z-index: 9999;"></div>
@@ -388,6 +448,23 @@
         .goog-te-menu-frame {
             bottom: 75px !important;
             right: 10px !important;
+        }
+    }
+    
+    /* Live time styling */
+    #liveTime {
+        font-family: 'Courier New', monospace;
+        font-weight: 600;
+        color: #4cc9f0;
+        text-shadow: 0 0 5px rgba(76, 201, 240, 0.3);
+        transition: opacity 0.5s ease;
+    }
+    
+    /* Dark mode support */
+    @media (prefers-color-scheme: dark) {
+        #liveTime {
+            color: #64d8ff;
+            text-shadow: 0 0 8px rgba(100, 216, 255, 0.5);
         }
     }
     </style>
