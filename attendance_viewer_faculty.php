@@ -1,6 +1,7 @@
-																								<?php
+<?php
 // attendance_viewer_faculty.php
 require_once 'config.php';
+session_start(); // Add session start
 
 // Security check - faculty only
 if (!isset($_SESSION['faculty_id']) || $_SESSION['role'] !== 'faculty') {
@@ -12,32 +13,47 @@ $faculty_id = $_SESSION['faculty_id'];
 $page_title = "Attendance Viewer - Faculty";
 include 'header.php';
 
-// Get faculty details
-$faculty_query = "SELECT * FROM faculty WHERE faculty_id = '$faculty_id'";
-$faculty_result = mysqli_query($conn, $faculty_query);
+// Get faculty details using prepared statement
+$faculty_query = "SELECT * FROM faculty WHERE faculty_id = ?";
+$faculty_stmt = mysqli_prepare($conn, $faculty_query);
+mysqli_stmt_bind_param($faculty_stmt, "s", $faculty_id);
+mysqli_stmt_execute($faculty_stmt);
+$faculty_result = mysqli_stmt_get_result($faculty_stmt);
 $faculty = mysqli_fetch_assoc($faculty_result);
+mysqli_stmt_close($faculty_stmt);
 
-// Get subjects taught by this faculty from sessions table
+// Get subjects taught by this faculty from sessions table using prepared statement
 $subjects_query = "SELECT DISTINCT s.subject_id, s.subject_code, s.subject_name 
                    FROM sessions se 
                    JOIN subjects s ON se.subject_id = s.subject_id 
-                   WHERE se.faculty_id = '$faculty_id' 
+                   WHERE se.faculty_id = ? 
                    ORDER BY s.subject_name";
-$subjects_result = mysqli_query($conn, $subjects_query);
+$subjects_stmt = mysqli_prepare($conn, $subjects_query);
+mysqli_stmt_bind_param($subjects_stmt, "s", $faculty_id);
+mysqli_stmt_execute($subjects_stmt);
+$subjects_result = mysqli_stmt_get_result($subjects_stmt);
 
 // Get all sections from students
 $sections_query = "SELECT DISTINCT section FROM students WHERE section != '' ORDER BY section";
 $sections_result = mysqli_query($conn, $sections_query);
 
-// Initialize filter variables
-$subject_filter = isset($_GET['subject_id']) ? $_GET['subject_id'] : '';
-$section_filter = isset($_GET['section']) ? $_GET['section'] : '';
-$student_id_filter = isset($_GET['student_id']) ? $_GET['student_id'] : '';
-$date_from = isset($_GET['date_from']) ? $_GET['date_from'] : date('Y-m-d', strtotime('-30 days'));
-$date_to = isset($_GET['date_to']) ? $_GET['date_to'] : date('Y-m-d');
-$search_query = isset($_GET['search']) ? $_GET['search'] : '';
+// Initialize filter variables with sanitization
+$subject_filter = isset($_GET['subject_id']) ? intval($_GET['subject_id']) : 0;
+$section_filter = isset($_GET['section']) ? mysqli_real_escape_string($conn, trim($_GET['section'])) : '';
+$student_id_filter = isset($_GET['student_id']) ? mysqli_real_escape_string($conn, trim($_GET['student_id'])) : '';
+$date_from = isset($_GET['date_from']) ? mysqli_real_escape_string($conn, trim($_GET['date_from'])) : date('Y-m-d', strtotime('-30 days'));
+$date_to = isset($_GET['date_to']) ? mysqli_real_escape_string($conn, trim($_GET['date_to'])) : date('Y-m-d');
+$search_query = isset($_GET['search']) ? mysqli_real_escape_string($conn, trim($_GET['search'])) : '';
 
-// Build base query WITHOUT status column
+// Validate date format
+if (!empty($date_from) && !preg_match('/^\d{4}-\d{2}-\d{2}$/', $date_from)) {
+    $date_from = date('Y-m-d', strtotime('-30 days'));
+}
+if (!empty($date_to) && !preg_match('/^\d{4}-\d{2}-\d{2}$/', $date_to)) {
+    $date_to = date('Y-m-d');
+}
+
+// Build base query WITHOUT status column using prepared statements
 $query = "SELECT 
             ar.record_id,
             ar.student_id,
@@ -53,34 +69,51 @@ $query = "SELECT
           JOIN students s ON ar.student_id = s.student_id
           JOIN sessions ses ON ar.session_id = ses.session_id
           JOIN subjects sub ON ses.subject_id = sub.subject_id
-          WHERE ses.faculty_id = '$faculty_id'";
+          WHERE ses.faculty_id = ?";
 
-// Apply filters
-if (!empty($subject_filter)) {
-    $query .= " AND sub.subject_id = '$subject_filter'";
+// Prepare parameters for main query
+$params = [$faculty_id];
+$param_types = "s";
+
+// Apply filters with prepared statements
+if ($subject_filter > 0) {
+    $query .= " AND sub.subject_id = ?";
+    $params[] = $subject_filter;
+    $param_types .= "i";
 }
 
 if (!empty($section_filter)) {
-    $query .= " AND s.section = '$section_filter'";
+    $query .= " AND s.section = ?";
+    $params[] = $section_filter;
+    $param_types .= "s";
 }
 
 if (!empty($student_id_filter)) {
-    $query .= " AND ar.student_id LIKE '%$student_id_filter%'";
+    $query .= " AND ar.student_id LIKE ?";
+    $params[] = "%$student_id_filter%";
+    $param_types .= "s";
 }
 
 if (!empty($search_query)) {
-    $query .= " AND (s.student_name LIKE '%$search_query%' OR s.student_id LIKE '%$search_query%' OR s.id_number LIKE '%$search_query%')";
+    $query .= " AND (s.student_name LIKE ? OR s.student_id LIKE ? OR s.id_number LIKE ?)";
+    $params[] = "%$search_query%";
+    $params[] = "%$search_query%";
+    $params[] = "%$search_query%";
+    $param_types .= "sss";
 }
 
 // Date range filter
 if (!empty($date_from) && !empty($date_to)) {
-    $query .= " AND DATE(ar.marked_at) BETWEEN '$date_from' AND '$date_to'";
+    $query .= " AND DATE(ar.marked_at) BETWEEN ? AND ?";
+    $params[] = $date_from;
+    $params[] = $date_to;
+    $param_types .= "ss";
 }
 
 // Order by
 $query .= " ORDER BY ar.marked_at DESC, s.section, s.student_name";
 
-// For summary statistics - simplified without status
+// For summary statistics - simplified without status using prepared statement
 $summary_query = "SELECT 
         COUNT(*) as total_records,
         COUNT(DISTINCT ar.student_id) as total_students,
@@ -88,86 +121,157 @@ $summary_query = "SELECT
       FROM attendance_records ar
       JOIN sessions ses ON ar.session_id = ses.session_id
       JOIN subjects sub ON ses.subject_id = sub.subject_id
-      WHERE ses.faculty_id = '$faculty_id'";
+      WHERE ses.faculty_id = ?";
+
+// Prepare parameters for summary query
+$summary_params = [$faculty_id];
+$summary_param_types = "s";
 
 // Add same filters to summary query
-if (!empty($subject_filter)) {
-    $summary_query .= " AND sub.subject_id = '$subject_filter'";
-}
-if (!empty($section_filter)) {
-    $summary_query .= " AND EXISTS (SELECT 1 FROM students s WHERE s.student_id = ar.student_id AND s.section = '$section_filter')";
-}
-if (!empty($student_id_filter)) {
-    $summary_query .= " AND ar.student_id LIKE '%$student_id_filter%'";
-}
-if (!empty($search_query)) {
-    $summary_query .= " AND EXISTS (SELECT 1 FROM students s WHERE s.student_id = ar.student_id AND (s.student_name LIKE '%$search_query%' OR s.student_id LIKE '%$search_query%' OR s.id_number LIKE '%$search_query%'))";
-}
-if (!empty($date_from) && !empty($date_to)) {
-    $summary_query .= " AND DATE(ar.marked_at) BETWEEN '$date_from' AND '$date_to'";
+if ($subject_filter > 0) {
+    $summary_query .= " AND sub.subject_id = ?";
+    $summary_params[] = $subject_filter;
+    $summary_param_types .= "i";
 }
 
-$summary_result = mysqli_query($conn, $summary_query);
-$summary = mysqli_fetch_assoc($summary_result);
+if (!empty($section_filter)) {
+    $summary_query .= " AND EXISTS (SELECT 1 FROM students s WHERE s.student_id = ar.student_id AND s.section = ?)";
+    $summary_params[] = $section_filter;
+    $summary_param_types .= "s";
+}
+
+if (!empty($student_id_filter)) {
+    $summary_query .= " AND ar.student_id LIKE ?";
+    $summary_params[] = "%$student_id_filter%";
+    $summary_param_types .= "s";
+}
+
+if (!empty($search_query)) {
+    $summary_query .= " AND EXISTS (SELECT 1 FROM students s WHERE s.student_id = ar.student_id AND (s.student_name LIKE ? OR s.student_id LIKE ? OR s.id_number LIKE ?))";
+    $summary_params[] = "%$search_query%";
+    $summary_params[] = "%$search_query%";
+    $summary_params[] = "%$search_query%";
+    $summary_param_types .= "sss";
+}
+
+if (!empty($date_from) && !empty($date_to)) {
+    $summary_query .= " AND DATE(ar.marked_at) BETWEEN ? AND ?";
+    $summary_params[] = $date_from;
+    $summary_params[] = $date_to;
+    $summary_param_types .= "ss";
+}
+
+// Execute summary query with prepared statement
+$summary_stmt = mysqli_prepare($conn, $summary_query);
+if ($summary_stmt) {
+    mysqli_stmt_bind_param($summary_stmt, $summary_param_types, ...$summary_params);
+    mysqli_stmt_execute($summary_stmt);
+    $summary_result = mysqli_stmt_get_result($summary_stmt);
+    $summary = mysqli_fetch_assoc($summary_result);
+    mysqli_stmt_close($summary_stmt);
+} else {
+    $summary = ['total_records' => 0, 'total_students' => 0, 'total_days' => 0];
+}
 
 // For pagination
 $records_per_page = 50;
-$page = isset($_GET['page']) ? $_GET['page'] : 1;
+$page = isset($_GET['page']) ? intval($_GET['page']) : 1;
 $offset = ($page - 1) * $records_per_page;
 
-// Count total records with same filters
+// Count total records with same filters using prepared statement
 $count_query = "SELECT COUNT(*) as total
                 FROM attendance_records ar
                 JOIN sessions ses ON ar.session_id = ses.session_id
                 JOIN subjects sub ON ses.subject_id = sub.subject_id
-                WHERE ses.faculty_id = '$faculty_id'";
+                WHERE ses.faculty_id = ?";
 
-if (!empty($subject_filter)) {
-    $count_query .= " AND sub.subject_id = '$subject_filter'";
+$count_params = [$faculty_id];
+$count_param_types = "s";
+
+if ($subject_filter > 0) {
+    $count_query .= " AND sub.subject_id = ?";
+    $count_params[] = $subject_filter;
+    $count_param_types .= "i";
 }
+
 if (!empty($section_filter)) {
-    $count_query .= " AND EXISTS (SELECT 1 FROM students s WHERE s.student_id = ar.student_id AND s.section = '$section_filter')";
-}
-if (!empty($student_id_filter)) {
-    $count_query .= " AND ar.student_id LIKE '%$student_id_filter%'";
-}
-if (!empty($search_query)) {
-    $count_query .= " AND EXISTS (SELECT 1 FROM students s WHERE s.student_id = ar.student_id AND (s.student_name LIKE '%$search_query%' OR s.student_id LIKE '%$search_query%' OR s.id_number LIKE '%$search_query%'))";
-}
-if (!empty($date_from) && !empty($date_to)) {
-    $count_query .= " AND DATE(ar.marked_at) BETWEEN '$date_from' AND '$date_to'";
+    $count_query .= " AND EXISTS (SELECT 1 FROM students s WHERE s.student_id = ar.student_id AND s.section = ?)";
+    $count_params[] = $section_filter;
+    $count_param_types .= "s";
 }
 
-$count_result = mysqli_query($conn, $count_query);
+if (!empty($student_id_filter)) {
+    $count_query .= " AND ar.student_id LIKE ?";
+    $count_params[] = "%$student_id_filter%";
+    $count_param_types .= "s";
+}
+
+if (!empty($search_query)) {
+    $count_query .= " AND EXISTS (SELECT 1 FROM students s WHERE s.student_id = ar.student_id AND (s.student_name LIKE ? OR s.student_id LIKE ? OR s.id_number LIKE ?))";
+    $count_params[] = "%$search_query%";
+    $count_params[] = "%$search_query%";
+    $count_params[] = "%$search_query%";
+    $count_param_types .= "sss";
+}
+
+if (!empty($date_from) && !empty($date_to)) {
+    $count_query .= " AND DATE(ar.marked_at) BETWEEN ? AND ?";
+    $count_params[] = $date_from;
+    $count_params[] = $date_to;
+    $count_param_types .= "ss";
+}
+
+$count_stmt = mysqli_prepare($conn, $count_query);
+mysqli_stmt_bind_param($count_stmt, $count_param_types, ...$count_params);
+mysqli_stmt_execute($count_stmt);
+$count_result = mysqli_stmt_get_result($count_stmt);
 $count_row = mysqli_fetch_assoc($count_result);
-$total_records = $count_row['total'];
+$total_records = $count_row['total'] ?? 0;
 $total_pages = ceil($total_records / $records_per_page);
+mysqli_stmt_close($count_stmt);
 
 // Add pagination to main query
-$query .= " LIMIT $offset, $records_per_page";
+$query .= " LIMIT ?, ?";
+$params[] = $offset;
+$params[] = $records_per_page;
+$param_types .= "ii";
 
-// Execute main query
-$attendance_result = mysqli_query($conn, $query);
+// Execute main query with prepared statement
+$main_stmt = mysqli_prepare($conn, $query);
+mysqli_stmt_bind_param($main_stmt, $param_types, ...$params);
+mysqli_stmt_execute($main_stmt);
+$attendance_result = mysqli_stmt_get_result($main_stmt);
 
-// Get chart data for daily attendance trend
+// Get chart data for daily attendance trend using prepared statement
 $chart_query = "SELECT 
                 DATE(ar.marked_at) as date,
                 COUNT(*) as total
                 FROM attendance_records ar
                 JOIN sessions ses ON ar.session_id = ses.session_id
-                WHERE ses.faculty_id = '$faculty_id' 
-                AND DATE(ar.marked_at) BETWEEN '$date_from' AND '$date_to'";
+                WHERE ses.faculty_id = ? 
+                AND DATE(ar.marked_at) BETWEEN ? AND ?";
                 
-if (!empty($subject_filter)) {
-    $chart_query .= " AND ses.subject_id = '$subject_filter'";
+$chart_params = [$faculty_id, $date_from, $date_to];
+$chart_param_types = "sss";
+
+if ($subject_filter > 0) {
+    $chart_query .= " AND ses.subject_id = ?";
+    $chart_params[] = $subject_filter;
+    $chart_param_types .= "i";
 }
+
 if (!empty($section_filter)) {
-    $chart_query .= " AND EXISTS (SELECT 1 FROM students s WHERE s.student_id = ar.student_id AND s.section = '$section_filter')";
+    $chart_query .= " AND EXISTS (SELECT 1 FROM students s WHERE s.student_id = ar.student_id AND s.section = ?)";
+    $chart_params[] = $section_filter;
+    $chart_param_types .= "s";
 }
 
 $chart_query .= " GROUP BY DATE(ar.marked_at) ORDER BY DATE(ar.marked_at)";
 
-$chart_result = mysqli_query($conn, $chart_query);
+$chart_stmt = mysqli_prepare($conn, $chart_query);
+mysqli_stmt_bind_param($chart_stmt, $chart_param_types, ...$chart_params);
+mysqli_stmt_execute($chart_stmt);
+$chart_result = mysqli_stmt_get_result($chart_stmt);
 $chart_labels = [];
 $chart_counts = [];
 
@@ -175,7 +279,11 @@ while($chart_row = mysqli_fetch_assoc($chart_result)) {
     $chart_labels[] = date('M d', strtotime($chart_row['date']));
     $chart_counts[] = intval($chart_row['total']);
 }
+mysqli_stmt_close($chart_stmt);
 ?>
+
+<!-- The rest of your HTML/PHP code remains exactly the same -->
+<!-- Only the PHP data fetching part has been secured -->
 
 <div class="container-fluid">
     <!-- Page Header -->
@@ -299,11 +407,12 @@ while($chart_row = mysqli_fetch_assoc($chart_result)) {
                         <?php 
                         mysqli_data_seek($subjects_result, 0); // Reset result pointer
                         while($subject = mysqli_fetch_assoc($subjects_result)): ?>
-                            <option value="<?php echo $subject['subject_id']; ?>" 
+                            <option value="<?php echo intval($subject['subject_id']); ?>" 
                                 <?php echo ($subject_filter == $subject['subject_id']) ? 'selected' : ''; ?>>
                                 <?php echo htmlspecialchars($subject['subject_code'] . ' - ' . $subject['subject_name']); ?>
                             </option>
                         <?php endwhile; ?>
+                        <?php mysqli_stmt_close($subjects_stmt); ?>
                     </select>
                 </div>
                 
@@ -314,7 +423,7 @@ while($chart_row = mysqli_fetch_assoc($chart_result)) {
                         <?php 
                         mysqli_data_seek($sections_result, 0);
                         while($section = mysqli_fetch_assoc($sections_result)): ?>
-                            <option value="<?php echo $section['section']; ?>" 
+                            <option value="<?php echo htmlspecialchars($section['section']); ?>" 
                                 <?php echo ($section_filter == $section['section']) ? 'selected' : ''; ?>>
                                 Section <?php echo htmlspecialchars($section['section']); ?>
                             </option>
@@ -592,7 +701,7 @@ while($chart_row = mysqli_fetch_assoc($chart_result)) {
                             </thead>
                             <tbody>
                                 <?php
-                                // Get section-wise statistics
+                                // Get section-wise statistics using prepared statement
                                 $section_stats_query = "SELECT 
                                         s.section,
                                         COUNT(DISTINCT s.student_id) as total_students,
@@ -603,25 +712,43 @@ while($chart_row = mysqli_fetch_assoc($chart_result)) {
                                     LEFT JOIN sessions ses ON ar.session_id = ses.session_id
                                     WHERE 1=1";
                                     
-                                if (!empty($subject_filter)) {
-                                    $section_stats_query .= " AND ses.subject_id = '$subject_filter'";
+                                $section_params = [];
+                                $section_param_types = "";
+                                    
+                                if ($subject_filter > 0) {
+                                    $section_stats_query .= " AND ses.subject_id = ?";
+                                    $section_params[] = $subject_filter;
+                                    $section_param_types .= "i";
                                 }
+                                
                                 if (!empty($date_from) && !empty($date_to)) {
-                                    $section_stats_query .= " AND DATE(ar.marked_at) BETWEEN '$date_from' AND '$date_to'";
+                                    $section_stats_query .= " AND DATE(ar.marked_at) BETWEEN ? AND ?";
+                                    $section_params[] = $date_from;
+                                    $section_params[] = $date_to;
+                                    $section_param_types .= "ss";
                                 }
+                                
                                 if (!empty($student_id_filter)) {
-                                    $section_stats_query .= " AND ar.student_id LIKE '%$student_id_filter%'";
+                                    $section_stats_query .= " AND ar.student_id LIKE ?";
+                                    $section_params[] = "%$student_id_filter%";
+                                    $section_param_types .= "s";
                                 }
                                 
                                 $section_stats_query .= " GROUP BY s.section ORDER BY s.section";
                                 
-                                $section_stats_result = mysqli_query($conn, $section_stats_query);
+                                $section_stats_stmt = mysqli_prepare($conn, $section_stats_query);
+                                if ($section_params) {
+                                    mysqli_stmt_bind_param($section_stats_stmt, $section_param_types, ...$section_params);
+                                }
+                                mysqli_stmt_execute($section_stats_stmt);
+                                $section_stats_result = mysqli_stmt_get_result($section_stats_stmt);
+                                
                                 while($section_stat = mysqli_fetch_assoc($section_stats_result)):
                                 ?>
                                 <tr>
-                                    <td><strong>Section <?php echo $section_stat['section']; ?></strong></td>
-                                    <td><?php echo $section_stat['total_students']; ?></td>
-                                    <td><?php echo $section_stat['total_records']; ?></td>
+                                    <td><strong>Section <?php echo htmlspecialchars($section_stat['section']); ?></strong></td>
+                                    <td><?php echo intval($section_stat['total_students']); ?></td>
+                                    <td><?php echo intval($section_stat['total_records']); ?></td>
                                     <td>
                                         <div class="progress" style="height: 20px;">
                                             <?php 
@@ -634,13 +761,16 @@ while($chart_row = mysqli_fetch_assoc($chart_result)) {
                                         </div>
                                     </td>
                                     <td>
-                                        <a href="?section=<?php echo $section_stat['section']; ?>&<?php echo http_build_query($_GET); ?>" 
+                                        <a href="?section=<?php echo urlencode($section_stat['section']); ?>&<?php echo http_build_query($_GET); ?>" 
                                            class="btn btn-sm btn-outline-primary">
                                             <i class="fas fa-filter"></i> Filter
                                         </a>
                                     </td>
                                 </tr>
-                                <?php endwhile; ?>
+                                <?php endwhile; 
+                                mysqli_stmt_close($section_stats_stmt);
+                                mysqli_stmt_close($main_stmt);
+                                ?>
                             </tbody>
                         </table>
                     </div>
@@ -674,11 +804,11 @@ while($chart_row = mysqli_fetch_assoc($chart_result)) {
                             <div class="row">
                                 <div class="col-6">
                                     <input type="date" id="exportDateFrom" class="form-control" 
-                                           value="<?php echo $date_from; ?>">
+                                           value="<?php echo htmlspecialchars($date_from); ?>">
                                 </div>
                                 <div class="col-6">
                                     <input type="date" id="exportDateTo" class="form-control" 
-                                           value="<?php echo $date_to; ?>">
+                                           value="<?php echo htmlspecialchars($date_to); ?>">
                                 </div>
                             </div>
                         </div>
@@ -835,7 +965,7 @@ function printReport() {
                     <br><br>
                     <div><strong>Filters Applied:</strong> 
                         Subject: <?php echo !empty($subject_filter) ? 'Selected' : 'All'; ?> | 
-                        Section: <?php echo !empty($section_filter) ? $section_filter : 'All'; ?> | 
+                        Section: <?php echo !empty($section_filter) ? htmlspecialchars($section_filter) : 'All'; ?> | 
                         Date Range: <?php echo date('d/m/Y', strtotime($date_from)); ?> to <?php echo date('d/m/Y', strtotime($date_to)); ?>
                     </div>
                 </div>
