@@ -160,13 +160,11 @@ include 'header.php';
                 <h5 class="mb-0"><i class="fas fa-user me-2"></i>My Profile</h5>
             </div>
             <div class="card-body text-center">
-                <!-- Profile Picture -->
+                <!-- Profile Picture - FIXED: Always use default.png -->
                 <div class="mb-3">
                     <?php
+                    // FIXED: Always use default.png regardless of database
                     $profile_pic = 'uploads/profiles/default.png';
-                    if (!empty($student['profile_pic'])) {
-                        $profile_pic = $student['profile_pic'];
-                    }
                     ?>
                     <img src="<?php echo htmlspecialchars($profile_pic); ?>" 
                          class="rounded-circle border" 
