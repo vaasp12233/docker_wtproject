@@ -1,5 +1,5 @@
 <?php
-// faculty_dashboard.php - Fixed for Render + Aiven
+// faculty_dashboard.php - Fixed for Render + Aiven with Lab Type Selection
 
 // ==================== CRITICAL: Start output buffering ====================
 if (!ob_get_level()) {
@@ -104,10 +104,12 @@ if (!$subjects_result) {
 $check_columns = mysqli_query($conn, "SHOW COLUMNS FROM sessions");
 $has_created_at = false;
 $has_start_time = false;
+$has_lab_type = false;
 
 while ($column = mysqli_fetch_assoc($check_columns)) {
     if ($column['Field'] == 'created_at') $has_created_at = true;
     if ($column['Field'] == 'start_time') $has_start_time = true;
+    if ($column['Field'] == 'lab_type') $has_lab_type = true;
 }
 
 // Use the correct time column
@@ -379,7 +381,7 @@ include 'header.php';
                         <div class="row g-3">
                             <div class="col-md-6">
                                 <label class="form-label fw-bold">Subject <span class="text-danger">*</span></label>
-                                <select class="form-select" name="subject_id" required>
+                                <select class="form-select" name="subject_id" required id="subjectSelect">
                                     <option value="" disabled selected>Select a subject</option>
                                     <?php 
                                     // Reset pointer and fetch subjects
@@ -412,13 +414,72 @@ include 'header.php';
                             
                             <div class="col-md-3">
                                 <label class="form-label fw-bold">Class Type <span class="text-danger">*</span></label>
-                                <select class="form-select" name="class_type" required>
+                                <select class="form-select" name="class_type" required id="classTypeSelect">
                                     <option value="Normal">Normal Class</option>
                                     <option value="Lab">Lab Session</option>
                                     <option value="Tutorial">Tutorial</option>
                                     <option value="Project">Project</option>
                                 </select>
                                 <small class="text-muted">Type of class session</small>
+                            </div>
+                            
+                            <!-- LAB TYPE SELECTION (SHOWN ONLY WHEN LAB IS SELECTED) -->
+                            <div class="col-md-12" id="labTypeSection" style="display: none;">
+                                <label class="form-label fw-bold">Lab Session Type <span class="text-danger">*</span></label>
+                                <div class="row">
+                                    <div class="col-md-4">
+                                        <div class="form-check">
+                                            <input class="form-check-input" type="radio" name="lab_type" id="preLab" value="pre-lab">
+                                            <label class="form-check-label" for="preLab">
+                                                <i class="fas fa-clock text-info me-1"></i> Pre-Lab
+                                            </label>
+                                            <small class="d-block text-muted">Before lab starts</small>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-4">
+                                        <div class="form-check">
+                                            <input class="form-check-input" type="radio" name="lab_type" id="duringLab" value="during-lab" checked>
+                                            <label class="form-check-label" for="duringLab">
+                                                <i class="fas fa-flask text-success me-1"></i> During Lab
+                                            </label>
+                                            <small class="d-block text-muted">Main lab session</small>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-4">
+                                        <div class="form-check">
+                                            <input class="form-check-input" type="radio" name="lab_type" id="postLab" value="post-lab">
+                                            <label class="form-check-label" for="postLab">
+                                                <i class="fas fa-clipboard-check text-warning me-1"></i> Post-Lab
+                                            </label>
+                                            <small class="d-block text-muted">After lab completion</small>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <!-- NORMAL CLASS TYPE SELECTION (SHOWN WHEN NORMAL IS SELECTED) -->
+                            <div class="col-md-12" id="normalTypeSection" style="display: none;">
+                                <label class="form-label fw-bold">Normal Class Type</label>
+                                <div class="row">
+                                    <div class="col-md-6">
+                                        <div class="form-check">
+                                            <input class="form-check-input" type="radio" name="lab_type" id="normalLecture" value="lecture" checked>
+                                            <label class="form-check-label" for="normalLecture">
+                                                <i class="fas fa-chalkboard-teacher text-primary me-1"></i> Lecture
+                                            </label>
+                                            <small class="d-block text-muted">Regular classroom teaching</small>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <div class="form-check">
+                                            <input class="form-check-input" type="radio" name="lab_type" id="normalTutorial" value="tutorial">
+                                            <label class="form-check-label" for="normalTutorial">
+                                                <i class="fas fa-chalkboard text-info me-1"></i> Tutorial
+                                            </label>
+                                            <small class="d-block text-muted">Problem-solving session</small>
+                                        </div>
+                                    </div>
+                                </div>
                             </div>
                             
                             <div class="col-12 mt-4">
@@ -474,6 +535,35 @@ include 'header.php';
                                 } elseif ($has_start_time && !empty($session['start_time'])) {
                                     $display_time = date('h:i A', strtotime($session['start_time']));
                                 }
+                                
+                                // Determine lab type badge
+                                $lab_type_badge = '';
+                                if ($has_lab_type && !empty($session['lab_type'])) {
+                                    $lab_type = $session['lab_type'];
+                                    $badge_color = 'secondary';
+                                    $icon = 'fa-flask';
+                                    
+                                    if ($lab_type == 'pre-lab') {
+                                        $badge_color = 'info';
+                                        $icon = 'fa-clock';
+                                    } elseif ($lab_type == 'during-lab') {
+                                        $badge_color = 'success';
+                                        $icon = 'fa-flask';
+                                    } elseif ($lab_type == 'post-lab') {
+                                        $badge_color = 'warning';
+                                        $icon = 'fa-clipboard-check';
+                                    } elseif ($lab_type == 'lecture') {
+                                        $badge_color = 'primary';
+                                        $icon = 'fa-chalkboard-teacher';
+                                    } elseif ($lab_type == 'tutorial') {
+                                        $badge_color = 'info';
+                                        $icon = 'fa-chalkboard';
+                                    }
+                                    
+                                    $lab_type_badge = '<span class="badge bg-' . $badge_color . ' me-2">' .
+                                        '<i class="fas ' . $icon . ' me-1"></i>' . ucfirst($lab_type) .
+                                        '</span>';
+                                }
                             ?>
                             <div class="session-item p-3 mb-3 <?php echo $status_class; ?> bg-light rounded">
                                 <div class="d-flex justify-content-between align-items-start">
@@ -487,6 +577,7 @@ include 'header.php';
                                         </small>
                                         <small class="text-muted">
                                             <i class="fas fa-chalkboard me-1"></i> <?php echo htmlspecialchars($session['class_type'] ?? 'N/A'); ?>
+                                            <?php echo $lab_type_badge; ?>
                                         </small>
                                     </div>
                                     <div class="text-end">
@@ -566,9 +657,37 @@ function updateTime() {
 updateTime();
 setInterval(updateTime, 60000);
 
-// Session form validation
+// Session form validation and lab type toggle
 document.addEventListener('DOMContentLoaded', function() {
     const sessionForm = document.getElementById('sessionForm');
+    const classTypeSelect = document.getElementById('classTypeSelect');
+    const labTypeSection = document.getElementById('labTypeSection');
+    const normalTypeSection = document.getElementById('normalTypeSection');
+    
+    // Function to toggle lab type visibility
+    function toggleLabType() {
+        const selectedClassType = classTypeSelect.value;
+        
+        if (selectedClassType === 'Lab') {
+            labTypeSection.style.display = 'block';
+            normalTypeSection.style.display = 'none';
+        } else if (selectedClassType === 'Normal') {
+            labTypeSection.style.display = 'none';
+            normalTypeSection.style.display = 'block';
+        } else {
+            labTypeSection.style.display = 'none';
+            normalTypeSection.style.display = 'none';
+        }
+    }
+    
+    // Initial toggle
+    toggleLabType();
+    
+    // Add event listener for class type change
+    if (classTypeSelect) {
+        classTypeSelect.addEventListener('change', toggleLabType);
+    }
+    
     if (sessionForm) {
         sessionForm.addEventListener('submit', function(e) {
             <?php if (!$has_custom_password): ?>
@@ -577,14 +696,23 @@ document.addEventListener('DOMContentLoaded', function() {
             window.location.href = 'change_password.php';
             return false;
             <?php endif; ?>
+            
+            // Validation for lab type if lab is selected
+            const selectedClassType = classTypeSelect.value;
+            if (selectedClassType === 'Lab') {
+                const labTypeSelected = document.querySelector('input[name="lab_type"]:checked');
+                if (!labTypeSelected) {
+                    e.preventDefault();
+                    alert('Please select a lab type (Pre-Lab, During Lab, or Post-Lab).');
+                    return false;
+                }
+            }
         });
     }
     
     // Prevent back button from going back to login if logged in
     window.addEventListener('pageshow', function(event) {
         if (event.persisted) {
-            // Page was loaded from cache (like when using back button)
-            // Refresh to get fresh data
             window.location.reload();
         }
     });
