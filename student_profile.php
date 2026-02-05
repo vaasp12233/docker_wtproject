@@ -1,5 +1,5 @@
 <?php
-// student_profile.php - Fixed for Render + Aiven
+// student_profile.php - Fixed for Render + Aiven + GitHub
 
 // ==================== CRITICAL: Start output buffering ====================
 if (!ob_get_level()) {
@@ -52,10 +52,31 @@ if (!$student_id) {
 // ==================== Initialize variables ====================
 $message = '';
 $message_type = ''; // success, danger, warning, info
-$current_pic = 'uploads/profiles/default.png';
+$current_pic = 'default.png'; // Start with default
+
+// ==================== Define upload directory ====================
+$upload_dir = "uploads/profiles/";
+$default_image = "default.png";
+
+// Create uploads directory if it doesn't exist
+if (!file_exists($upload_dir)) {
+    mkdir($upload_dir, 0755, true);
+    // Create a .htaccess file to protect the directory
+    file_put_contents($upload_dir . '.htaccess', "Order Allow,Deny\nDeny from all");
+}
 
 // ==================== Get current profile picture ====================
-$current_pic_query = "SELECT profile_pic FROM students WHERE student_id = ?";
+// First, check database field names
+$check_columns_query = "SHOW COLUMNS FROM students LIKE '%profile%'";
+$check_result = mysqli_query($conn, $check_columns_query);
+$profile_column = 'profile_pic'; // Default
+if ($check_result && mysqli_num_rows($check_result) > 0) {
+    $row = mysqli_fetch_assoc($check_result);
+    $profile_column = $row['Field'];
+}
+
+// Get current picture from database
+$current_pic_query = "SELECT $profile_column FROM students WHERE student_id = ?";
 $stmt = mysqli_prepare($conn, $current_pic_query);
 if ($stmt) {
     mysqli_stmt_bind_param($stmt, "s", $student_id);
@@ -65,57 +86,62 @@ if ($stmt) {
     mysqli_stmt_close($stmt);
     
     if (!empty($db_profile_pic)) {
-        $current_pic = $db_profile_pic;
-        // Check if file exists, if not use default
-        if (!file_exists($current_pic)) {
-            $current_pic = 'uploads/profiles/default.png';
+        // Extract just the filename from the path
+        $db_profile_pic = basename($db_profile_pic);
+        
+        // Check if file exists in uploads directory
+        $file_path = $upload_dir . $db_profile_pic;
+        if (file_exists($file_path) && $db_profile_pic !== $default_image) {
+            $current_pic = $db_profile_pic;
         }
     }
 }
 
 // ==================== Handle profile picture upload ====================
 if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_FILES['profile_pic'])) {
-    $target_dir = "uploads/profiles/";
-    
-    // Create directory if it doesn't exist
-    if (!file_exists($target_dir)) {
-        mkdir($target_dir, 0777, true);
-    }
-    
-    $target_file = $target_dir . "student_" . $student_id . ".png";
-    
-    // Check if file was uploaded without errors
-    if ($_FILES['profile_pic']['error'] !== UPLOAD_ERR_OK) {
-        $message = 'File upload error: ' . $_FILES['profile_pic']['error'];
-        $message_type = 'danger';
-    } 
-    // Check if file is an actual image
-    elseif (!getimagesize($_FILES["profile_pic"]["tmp_name"])) {
-        $message = 'File is not a valid image.';
-        $message_type = 'danger';
-    } 
-    // Check file size (max 2MB = 2,000,000 bytes)
-    elseif ($_FILES["profile_pic"]["size"] > 2000000) {
-        $message = 'Image size must be less than 2MB.';
-        $message_type = 'danger';
-    }
-    // Allow certain file formats
-    else {
-        $allowed_types = ['image/jpeg', 'image/jpg', 'image/png'];
-        $file_type = $_FILES["profile_pic"]["type"];
+    // Check if file was uploaded
+    if ($_FILES['profile_pic']['error'] === UPLOAD_ERR_OK) {
+        $file_name = $_FILES['profile_pic']['name'];
+        $file_tmp = $_FILES['profile_pic']['tmp_name'];
+        $file_size = $_FILES['profile_pic']['size'];
+        $file_error = $_FILES['profile_pic']['error'];
         
-        if (!in_array($file_type, $allowed_types)) {
-            $message = 'Only JPG, JPEG & PNG files are allowed.';
+        // Get file extension
+        $file_ext = strtolower(pathinfo($file_name, PATHINFO_EXTENSION));
+        
+        // Allowed extensions
+        $allowed_ext = ['jpg', 'jpeg', 'png', 'gif'];
+        
+        // Validate file
+        if (!in_array($file_ext, $allowed_ext)) {
+            $message = 'Invalid file type. Only JPG, JPEG, PNG, and GIF are allowed.';
+            $message_type = 'danger';
+        } elseif ($file_size > 2097152) { // 2MB
+            $message = 'File size must be less than 2MB.';
+            $message_type = 'danger';
+        } elseif (!getimagesize($file_tmp)) {
+            $message = 'File is not a valid image.';
             $message_type = 'danger';
         } else {
+            // Generate unique filename
+            $new_filename = "student_" . $student_id . "_" . time() . "." . $file_ext;
+            $destination = $upload_dir . $new_filename;
+            
+            // Process image based on type
             try {
-                // Load image based on type
-                $tmp_name = $_FILES["profile_pic"]["tmp_name"];
-                
-                if ($file_type == 'image/jpeg' || $file_type == 'image/jpg') {
-                    $image = imagecreatefromjpeg($tmp_name);
-                } elseif ($file_type == 'image/png') {
-                    $image = imagecreatefrompng($tmp_name);
+                switch ($file_ext) {
+                    case 'jpg':
+                    case 'jpeg':
+                        $image = imagecreatefromjpeg($file_tmp);
+                        break;
+                    case 'png':
+                        $image = imagecreatefrompng($file_tmp);
+                        break;
+                    case 'gif':
+                        $image = imagecreatefromgif($file_tmp);
+                        break;
+                    default:
+                        throw new Exception('Unsupported image format');
                 }
                 
                 if (!$image) {
@@ -130,68 +156,108 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_FILES['profile_pic'])) {
                 $thumb_size = 300;
                 $thumb = imagecreatetruecolor($thumb_size, $thumb_size);
                 
-                // Fill with white background (for transparent PNGs)
+                // Fill with white background (for transparent PNGs/GIFs)
                 $white = imagecolorallocate($thumb, 255, 255, 255);
                 imagefill($thumb, 0, 0, $white);
                 
-                // Calculate resize
-                $src_x = 0;
-                $src_y = 0;
-                $src_w = $width;
-                $src_h = $height;
-                
-                // Crop to square if needed
+                // Calculate resize to fit square
                 if ($width > $height) {
-                    $src_x = floor(($width - $height) / 2);
-                    $src_w = $height;
-                } elseif ($height > $width) {
-                    $src_y = floor(($height - $width) / 2);
-                    $src_h = $width;
-                }
-                
-                // Resize and crop
-                imagecopyresampled($thumb, $image, 0, 0, $src_x, $src_y, 
-                                  $thumb_size, $thumb_size, $src_w, $src_h);
-                
-                // Save as PNG
-                if (imagepng($thumb, $target_file, 9)) { // 9 = maximum compression
-                    // Update database
-                    $update_sql = "UPDATE students SET profile_pic = ? WHERE student_id = ?";
-                    $stmt_update = mysqli_prepare($conn, $update_sql);
-                    
-                    if ($stmt_update) {
-                        mysqli_stmt_bind_param($stmt_update, "ss", $target_file, $student_id);
-                        
-                        if (mysqli_stmt_execute($stmt_update)) {
-                            $message = 'Profile picture updated successfully!';
-                            $message_type = 'success';
-                            $current_pic = $target_file; // Update current picture
-                            
-                            // Update session if needed
-                            $_SESSION['profile_updated'] = true;
-                        } else {
-                            $message = 'Database update failed: ' . mysqli_error($conn);
-                            $message_type = 'warning';
-                        }
-                        mysqli_stmt_close($stmt_update);
-                    } else {
-                        $message = 'Failed to prepare database update.';
-                        $message_type = 'danger';
-                    }
+                    // Landscape - crop width
+                    $src_x = ($width - $height) / 2;
+                    $src_y = 0;
+                    $src_size = $height;
                 } else {
-                    $message = 'Failed to save image.';
-                    $message_type = 'danger';
+                    // Portrait or square - crop height
+                    $src_x = 0;
+                    $src_y = ($height - $width) / 2;
+                    $src_size = $width;
                 }
                 
-                // Clean up
+                // Resize and crop to square
+                imagecopyresampled($thumb, $image, 0, 0, $src_x, $src_y, 
+                                  $thumb_size, $thumb_size, $src_size, $src_size);
+                
+                // Save the processed image
+                switch ($file_ext) {
+                    case 'jpg':
+                    case 'jpeg':
+                        imagejpeg($thumb, $destination, 85); // 85% quality
+                        break;
+                    case 'png':
+                        imagepng($thumb, $destination, 8); // 8 = medium compression
+                        break;
+                    case 'gif':
+                        imagegif($thumb, $destination);
+                        break;
+                }
+                
+                // Clean up memory
                 imagedestroy($image);
                 imagedestroy($thumb);
+                
+                // Delete old profile picture if it's not the default
+                if ($current_pic !== $default_image && $current_pic !== $new_filename) {
+                    $old_file = $upload_dir . $current_pic;
+                    if (file_exists($old_file)) {
+                        unlink($old_file);
+                    }
+                }
+                
+                // Update database with just filename (not full path)
+                $update_sql = "UPDATE students SET $profile_column = ? WHERE student_id = ?";
+                $stmt_update = mysqli_prepare($conn, $update_sql);
+                
+                if ($stmt_update) {
+                    mysqli_stmt_bind_param($stmt_update, "ss", $new_filename, $student_id);
+                    
+                    if (mysqli_stmt_execute($stmt_update)) {
+                        $current_pic = $new_filename;
+                        $message = 'Profile picture updated successfully!';
+                        $message_type = 'success';
+                        
+                        // Update session
+                        $_SESSION['profile_updated'] = true;
+                    } else {
+                        $message = 'Database update failed: ' . mysqli_error($conn);
+                        $message_type = 'warning';
+                    }
+                    mysqli_stmt_close($stmt_update);
+                } else {
+                    $message = 'Failed to prepare database update.';
+                    $message_type = 'danger';
+                }
                 
             } catch (Exception $e) {
                 $message = 'Error processing image: ' . $e->getMessage();
                 $message_type = 'danger';
             }
         }
+    } else {
+        // Handle upload errors
+        switch ($_FILES['profile_pic']['error']) {
+            case UPLOAD_ERR_INI_SIZE:
+            case UPLOAD_ERR_FORM_SIZE:
+                $message = 'File size is too large. Maximum 2MB allowed.';
+                break;
+            case UPLOAD_ERR_PARTIAL:
+                $message = 'File was only partially uploaded.';
+                break;
+            case UPLOAD_ERR_NO_FILE:
+                $message = 'No file was selected.';
+                break;
+            case UPLOAD_ERR_NO_TMP_DIR:
+                $message = 'Missing temporary folder.';
+                break;
+            case UPLOAD_ERR_CANT_WRITE:
+                $message = 'Failed to write file to disk.';
+                break;
+            case UPLOAD_ERR_EXTENSION:
+                $message = 'File upload stopped by extension.';
+                break;
+            default:
+                $message = 'Unknown upload error.';
+        }
+        $message_type = 'danger';
     }
     
     // Store message in session for persistence if redirecting
@@ -207,6 +273,9 @@ if (ob_get_length() > 0 && !headers_sent()) {
 
 // ==================== Set page title ====================
 $page_title = "Update Profile";
+
+// Include header after processing
+include 'header.php';
 ?>
 
 <!DOCTYPE html>
@@ -369,49 +438,15 @@ $page_title = "Update Profile";
             font-size: 2rem;
         }
         
-        /* Dark mode support */
-        body.dark-mode {
-            background: linear-gradient(135deg, #121212 0%, #1e1e1e 100%);
-            color: #e0e0e0;
-        }
-        
-        body.dark-mode .card {
-            background: #1e1e1e;
-            color: #e0e0e0;
-        }
-        
-        body.dark-mode .form-control {
-            background: #2d2d2d;
-            color: #e0e0e0;
-            border-color: #444;
-        }
-        
-        body.dark-mode .file-input-label {
-            background: #2d2d2d;
-            border-color: #444;
-            color: #e0e0e0;
+        .progress-bar {
+            width: 0%;
+            transition: width 0.3s ease;
         }
     </style>
 </head>
 <body>
-    <!-- Navbar -->
-    <nav class="navbar navbar-expand-lg navbar-dark bg-dark shadow">
-        <div class="container">
-            <a class="navbar-brand" href="student_dashboard.php">
-                <i class="fas fa-graduation-cap me-2"></i>
-                CSE Attendance - Profile Update
-            </a>
-            <div class="navbar-nav ms-auto">
-                <a class="nav-link" href="student_dashboard.php">
-                    <i class="fas fa-arrow-left me-1"></i> Back to Dashboard
-                </a>
-                <a class="nav-link" href="logout.php">
-                    <i class="fas fa-sign-out-alt me-1"></i> Logout
-                </a>
-            </div>
-        </div>
-    </nav>
-
+    <!-- Header is included from header.php -->
+    
     <!-- Main Content -->
     <div class="container mt-5">
         <div class="row justify-content-center">
@@ -439,10 +474,11 @@ $page_title = "Update Profile";
                             <div class="col-md-6 text-center mb-4">
                                 <h5 class="mb-4">Current Picture</h5>
                                 <div class="preview-container">
-                                    <img src="<?php echo htmlspecialchars($current_pic); ?>?v=<?php echo time(); ?>" 
+                                    <img src="<?php echo $upload_dir . htmlspecialchars($current_pic) . '?v=' . time(); ?>" 
                                          class="profile-img rounded-circle" 
                                          alt="Current Profile Picture"
-                                         id="currentImage">
+                                         id="currentImage"
+                                         onerror="this.src='<?php echo $upload_dir . $default_image; ?>'">
                                     <div class="preview-overlay">
                                         <i class="fas fa-eye"></i>
                                     </div>
@@ -470,8 +506,20 @@ $page_title = "Update Profile";
                                                 <i class="fas fa-cloud-upload-alt fa-2x mb-3"></i>
                                                 <h6>Click to choose image</h6>
                                                 <p class="mb-0 small text-muted">or drag and drop here</p>
-                                                <p class="mb-0 small text-muted">Max size: 2MB • JPG, PNG, JPEG</p>
+                                                <p class="mb-0 small text-muted">Max size: 2MB • JPG, PNG, GIF, JPEG</p>
                                             </label>
+                                        </div>
+                                    </div>
+                                    
+                                    <!-- Upload Progress -->
+                                    <div class="mb-3" id="progressContainer" style="display: none;">
+                                        <div class="d-flex justify-content-between mb-1">
+                                            <span id="progressText">Uploading...</span>
+                                            <span id="progressPercent">0%</span>
+                                        </div>
+                                        <div class="progress" style="height: 10px;">
+                                            <div id="progressBar" class="progress-bar progress-bar-striped progress-bar-animated" 
+                                                 role="progressbar" style="width: 0%"></div>
                                         </div>
                                     </div>
                                     
@@ -491,9 +539,10 @@ $page_title = "Update Profile";
                                             <strong>Image Requirements:</strong>
                                             <ul class="mb-0">
                                                 <li>Maximum file size: 2MB</li>
-                                                <li>Accepted formats: JPG, JPEG, PNG</li>
-                                                <li>Image will be cropped to square</li>
+                                                <li>Accepted formats: JPG, JPEG, PNG, GIF</li>
+                                                <li>Image will be automatically cropped to square</li>
                                                 <li>Recommended: Square image, clear face visible</li>
+                                                <li>Your old image will be replaced</li>
                                             </ul>
                                         </div>
                                     </div>
@@ -516,23 +565,9 @@ $page_title = "Update Profile";
         </div>
     </div>
 
-    <!-- Footer -->
-    <footer class="mt-5 py-4 bg-dark text-white">
-        <div class="container">
-            <div class="row">
-                <div class="col-md-6">
-                    <h6>CSE Attendance System</h6>
-                    <p class="mb-0 small">Department of Computer Science</p>
-                    <p class="mb-0 small">Student Profile Management</p>
-                </div>
-                <div class="col-md-6 text-md-end">
-                    <p class="mb-0 small">&copy; <?php echo date('Y'); ?> CSE Department</p>
-                    <p class="mb-0 small">Student ID: <?php echo htmlspecialchars($student_id); ?></p>
-                </div>
-            </div>
-        </div>
-    </footer>
-
+    <!-- Footer is included from footer.php -->
+    <?php include 'footer.php'; ?>
+    
     <!-- Bootstrap JS -->
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     
@@ -557,10 +592,14 @@ $page_title = "Update Profile";
         }
     }
     
-    // Form validation
+    // Form validation and upload simulation
     document.getElementById('profileForm').addEventListener('submit', function(e) {
         const fileInput = document.getElementById('profile_pic');
         const submitBtn = document.getElementById('submitBtn');
+        const progressContainer = document.getElementById('progressContainer');
+        const progressBar = document.getElementById('progressBar');
+        const progressPercent = document.getElementById('progressPercent');
+        const progressText = document.getElementById('progressText');
         
         if (!fileInput.files || fileInput.files.length === 0) {
             e.preventDefault();
@@ -577,8 +616,24 @@ $page_title = "Update Profile";
             return;
         }
         
-        // Show loading state
-        submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i> Uploading...';
+        // Show progress bar
+        progressContainer.style.display = 'block';
+        progressText.textContent = 'Processing image...';
+        
+        // Simulate progress
+        let progress = 0;
+        const interval = setInterval(() => {
+            progress += 5;
+            if (progress > 90) {
+                progress = 90;
+                clearInterval(interval);
+            }
+            progressBar.style.width = progress + '%';
+            progressPercent.textContent = progress + '%';
+        }, 100);
+        
+        // Show loading state on button
+        submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i> Processing...';
         submitBtn.disabled = true;
     });
     
@@ -587,14 +642,15 @@ $page_title = "Update Profile";
         const imgSrc = this.src;
         const modalHtml = `
             <div class="modal fade" id="imageModal" tabindex="-1">
-                <div class="modal-dialog modal-dialog-centered">
+                <div class="modal-dialog modal-dialog-centered modal-lg">
                     <div class="modal-content">
                         <div class="modal-header">
                             <h5 class="modal-title">Profile Picture Preview</h5>
                             <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
                         </div>
                         <div class="modal-body text-center">
-                            <img src="${imgSrc}" class="img-fluid rounded" alt="Profile Preview">
+                            <img src="${imgSrc}" class="img-fluid rounded" alt="Profile Preview" 
+                                 style="max-height: 70vh; object-fit: contain;">
                         </div>
                         <div class="modal-footer">
                             <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
@@ -626,6 +682,36 @@ $page_title = "Update Profile";
             bsAlert.close();
         });
     }, 5000);
+    
+    // Check if there are session messages to display
+    <?php if (isset($_SESSION['profile_message'])): ?>
+        // Show session message if exists
+        const sessionMessage = '<?php echo addslashes($_SESSION["profile_message"]); ?>';
+        const sessionType = '<?php echo $_SESSION["profile_message_type"]; ?>';
+        
+        if (sessionMessage) {
+            // Create alert
+            const alertHtml = `
+                <div class="alert alert-${sessionType} alert-dismissible fade show" role="alert">
+                    <i class="fas fa-${sessionType === 'success' ? 'check-circle' : 'exclamation-triangle'} me-2"></i>
+                    ${sessionMessage}
+                    <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                </div>
+            `;
+            
+            // Add to page
+            const cardBody = document.querySelector('.card-body');
+            if (cardBody) {
+                cardBody.insertAdjacentHTML('afterbegin', alertHtml);
+            }
+            
+            // Clear session storage
+            <?php 
+            unset($_SESSION['profile_message']);
+            unset($_SESSION['profile_message_type']);
+            ?>
+        }
+    <?php endif; ?>
     </script>
 </body>
 </html>
@@ -634,4 +720,3 @@ $page_title = "Update Profile";
 if (ob_get_level() > 0) {
     ob_end_flush();
 }
-?>
