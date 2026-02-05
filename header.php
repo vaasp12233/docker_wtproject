@@ -1,13 +1,55 @@
 <?php
-// Common header for all pages
+// ==================== CRITICAL: Start output buffering ====================
+// This prevents "headers already sent" errors
+if (!ob_get_level()) {
+    ob_start();
+}
 
+// ==================== Start session if not already started ====================
+if (session_status() === PHP_SESSION_NONE) {
+    // Configure session for Render
+    ini_set('session.save_path', '/tmp');
+    ini_set('session.cookie_lifetime', 86400);
+    @session_start();
+}
+
+// ==================== Include database config if needed ====================
+// Only include if DB connection is needed for this page
+// Note: Not all pages need DB connection, so we check first
+$needs_db = true; // Set to false in pages that don't need DB
+
+// Check if this is a public page (like login, index) that might not need DB
+$public_pages = ['login.php', 'index.php', 'logout.php'];
+$current_page = basename($_SERVER['PHP_SELF']);
+if (in_array($current_page, $public_pages)) {
+    $needs_db = false;
+}
+
+if ($needs_db && !isset($conn)) {
+    // Check if config.php exists
+    if (file_exists('config.php')) {
+        require_once 'config.php';
+    }
+}
+
+// ==================== Set default page title if not defined ====================
+if (!isset($page_title)) {
+    $page_title = 'CSE Attendance System';
+}
+
+// ==================== Clean buffer before output ====================
+// But don't clean if we're in the middle of output
+if (ob_get_length() > 0 && !headers_sent()) {
+    ob_end_clean();
+    ob_start(); // Start new buffer for HTML output
+}
 ?>
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title><?php echo isset($page_title) ? $page_title . ' - ' : ''; ?>CSE Attendance System</title>
+    <title><?php echo htmlspecialchars($page_title); ?></title>
     <!-- Bootstrap 5 -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <!-- Font Awesome -->
@@ -24,6 +66,7 @@
             background: #f8f9fa;
             color: #212529;
             transition: all 0.3s ease;
+            min-height: 100vh;
         }
         
         .navbar {
@@ -251,6 +294,19 @@
         body.dark-mode .dropdown-divider {
             border-color: #444;
         }
+        
+        /* Fix for alerts */
+        body.dark-mode .alert {
+            background: #1e1e1e;
+            color: #e0e0e0;
+            border-color: #333;
+        }
+        
+        /* Main content wrapper */
+        .main-content {
+            min-height: calc(100vh - 140px);
+            padding-bottom: 40px;
+        }
     </style>
 </head>
 <body>
@@ -265,11 +321,18 @@
             </button>
             <div class="collapse navbar-collapse" id="navbarNav">
                 <ul class="navbar-nav ms-auto align-items-center">
-                    <?php if(isset($_SESSION['logged_in'])): ?>
+                    <?php if(isset($_SESSION['logged_in']) && $_SESSION['logged_in'] === true): ?>
                         <li class="nav-item">
                             <a class="nav-link" href="<?php echo $_SESSION['role'] == 'faculty' ? 'faculty_dashboard.php' : 'student_dashboard.php'; ?>">
                                 <i class="fas fa-home me-1"></i> Dashboard
                             </a>
+                        </li>
+                        <li class="nav-item">
+                            <span class="nav-link text-primary">
+                                <i class="fas fa-user me-1"></i>
+                                <?php echo isset($_SESSION['name']) ? htmlspecialchars($_SESSION['name']) : 'User'; ?>
+                                (<?php echo isset($_SESSION['role']) ? ucfirst($_SESSION['role']) : ''; ?>)
+                            </span>
                         </li>
                         <li class="nav-item">
                             <a class="nav-link" href="logout.php">
@@ -282,9 +345,14 @@
                                 <i class="fas fa-sign-in-alt me-1"></i> Login
                             </a>
                         </li>
+                        <li class="nav-item">
+                            <a class="nav-link" href="index.php">
+                                <i class="fas fa-home me-1"></i> Home
+                            </a>
+                        </li>
                     <?php endif; ?>
                     
-                    <!-- Dark/Light Mode Toggle Button - NOW VISIBLE IN DARK MODE -->
+                    <!-- Dark/Light Mode Toggle Button -->
                     <li class="nav-item">
                         <button class="theme-toggle" id="themeToggle" aria-label="Toggle dark/light mode">
                             <i class="fas fa-moon" id="themeIcon"></i>
@@ -294,137 +362,6 @@
             </div>
         </div>
     </nav>
-    <div class="container mt-4">
     
-    <script>
-    // Dark/Light Mode Toggle
-    const themeToggle = document.getElementById('themeToggle');
-    const themeIcon = document.getElementById('themeIcon');
-    const body = document.body;
-    
-    // Check for saved theme or prefer-color-scheme
-    const prefersDarkScheme = window.matchMedia('(prefers-color-scheme: dark)');
-    const currentTheme = localStorage.getItem('theme');
-    
-    // Set initial theme
-    if (currentTheme === 'dark' || (!currentTheme && prefersDarkScheme.matches)) {
-        enableDarkMode();
-    } else {
-        enableLightMode();
-    }
-    
-    // Toggle theme on button click
-    themeToggle.addEventListener('click', function() {
-        if (body.classList.contains('dark-mode')) {
-            enableLightMode();
-        } else {
-            enableDarkMode();
-        }
-    });
-    
-    function enableDarkMode() {
-        body.classList.add('dark-mode');
-        themeIcon.classList.remove('fa-moon');
-        themeIcon.classList.add('fa-sun');
-        localStorage.setItem('theme', 'dark');
-        
-        // Update button visibility
-        updateThemeButtonForDarkMode();
-    }
-    
-    function enableLightMode() {
-        body.classList.remove('dark-mode');
-        themeIcon.classList.remove('fa-sun');
-        themeIcon.classList.add('fa-moon');
-        localStorage.setItem('theme', 'light');
-        
-        // Update button visibility
-        updateThemeButtonForLightMode();
-    }
-    
-    // Make button clearly visible in dark mode
-    function updateThemeButtonForDarkMode() {
-        const button = document.getElementById('themeToggle');
-        if (button) {
-            // Bright blue gradient for dark mode
-            button.style.background = 'linear-gradient(135deg, #4dabf7, #4361ee)';
-            button.style.boxShadow = '0 2px 10px rgba(77, 171, 247, 0.3)';
-            button.style.color = 'white';
-            
-            // Make icon white
-            const icon = button.querySelector('i');
-            if (icon) {
-                icon.style.color = 'white';
-            }
-        }
-    }
-    
-    // Reset button for light mode
-    function updateThemeButtonForLightMode() {
-        const button = document.getElementById('themeToggle');
-        if (button) {
-            // Original gradient for light mode
-            button.style.background = 'linear-gradient(135deg, #4361ee, #3a0ca3)';
-            button.style.boxShadow = '0 2px 10px rgba(0,0,0,0.1)';
-            button.style.color = 'white';
-        }
-    }
-    
-    // Update all text elements for dark mode
-    function updateAllTextForDarkMode() {
-        // Update all text elements
-        document.querySelectorAll('h1, h2, h3, h4, h5, h6, p, span, label, .text-dark, .text-black, .text-muted, .text-body, .form-label, th, td, li').forEach(el => {
-            if (!el.classList.contains('nav-link') && !el.classList.contains('navbar-brand') && !el.classList.contains('btn') && !el.classList.contains('theme-toggle')) {
-                const computedStyle = window.getComputedStyle(el);
-                const currentColor = computedStyle.color;
-                
-                // If text is black/dark, make it light
-                if (currentColor === 'rgb(0, 0, 0)' || 
-                    currentColor === 'rgb(33, 37, 41)' || 
-                    currentColor === 'rgb(52, 58, 64)' ||
-                    currentColor.includes('rgb(0,') ||
-                    currentColor.includes('rgb(33,') ||
-                    currentColor.includes('rgb(52,')) {
-                    el.style.color = '#e0e0e0';
-                }
-                
-                // Fix for muted text
-                if (el.classList.contains('text-muted')) {
-                    el.style.color = '#a0a0a0';
-                }
-            }
-        });
-    }
-    
-    // Reset text colors for light mode
-    function updateAllTextForLightMode() {
-        document.querySelectorAll('h1, h2, h3, h4, h5, h6, p, span, label, .text-dark, .text-black, .text-muted, .text-body, .form-label, th, td, li').forEach(el => {
-            if (!el.classList.contains('nav-link') && !el.classList.contains('navbar-brand') && !el.classList.contains('btn') && !el.classList.contains('theme-toggle')) {
-                el.style.color = '';
-            }
-        });
-    }
-    
-    // Listen for system theme changes
-    prefersDarkScheme.addEventListener('change', function(e) {
-        if (!localStorage.getItem('theme')) {
-            if (e.matches) {
-                enableDarkMode();
-            } else {
-                enableLightMode();
-            }
-        }
-    });
-    
-    // Apply dark mode to elements added after page load
-    const observer = new MutationObserver(function(mutations) {
-        if (body.classList.contains('dark-mode')) {
-            setTimeout(updateAllTextForDarkMode, 100);
-            setTimeout(updateThemeButtonForDarkMode, 100);
-        } else {
-            setTimeout(updateThemeButtonForLightMode, 100);
-        }
-    });
-    
-    observer.observe(document.body, { childList: true, subtree: true });
-    </script>
+    <div class="main-content">
+        <div class="container mt-4">
