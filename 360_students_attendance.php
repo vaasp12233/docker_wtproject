@@ -1,6 +1,7 @@
 <?php
 // 360_students_attendance.php
 require_once 'config.php';
+session_start(); // Add session start
 
 // Security check - faculty only
 if (!isset($_SESSION['faculty_id']) || $_SESSION['role'] !== 'faculty') {
@@ -12,33 +13,57 @@ $faculty_id = $_SESSION['faculty_id'];
 $page_title = "360 Students Attendance Overview";
 include 'header.php';
 
-// Get faculty details
-$faculty_query = "SELECT * FROM faculty WHERE faculty_id = '$faculty_id'";
-$faculty_result = mysqli_query($conn, $faculty_query);
+// Get faculty details using prepared statement
+$faculty_query = "SELECT * FROM faculty WHERE faculty_id = ?";
+$faculty_stmt = mysqli_prepare($conn, $faculty_query);
+mysqli_stmt_bind_param($faculty_stmt, "s", $faculty_id);
+mysqli_stmt_execute($faculty_stmt);
+$faculty_result = mysqli_stmt_get_result($faculty_stmt);
 $faculty = mysqli_fetch_assoc($faculty_result);
+mysqli_stmt_close($faculty_stmt);
 
-// Get all subjects taught by this faculty
+// Get all subjects taught by this faculty using prepared statement
 $subjects_query = "SELECT DISTINCT s.subject_id, s.subject_code, s.subject_name 
                    FROM sessions se 
                    JOIN subjects s ON se.subject_id = s.subject_id 
-                   WHERE se.faculty_id = '$faculty_id' 
+                   WHERE se.faculty_id = ? 
                    ORDER BY s.subject_name";
-$subjects_result = mysqli_query($conn, $subjects_query);
+$subjects_stmt = mysqli_prepare($conn, $subjects_query);
+mysqli_stmt_bind_param($subjects_stmt, "s", $faculty_id);
+mysqli_stmt_execute($subjects_stmt);
+$subjects_result = mysqli_stmt_get_result($subjects_stmt);
 
 // Get all sections
 $sections_query = "SELECT DISTINCT section FROM students WHERE section != '' ORDER BY section";
 $sections_result = mysqli_query($conn, $sections_query);
 
-// Initialize filter variables
-$subject_filter = isset($_GET['subject_id']) ? $_GET['subject_id'] : '';
-$section_filter = isset($_GET['section']) ? $_GET['section'] : '';
-$date_from = isset($_GET['date_from']) ? $_GET['date_from'] : date('Y-m-d', strtotime('-90 days'));
-$date_to = isset($_GET['date_to']) ? $_GET['date_to'] : date('Y-m-d');
-$search_query = isset($_GET['search']) ? $_GET['search'] : '';
-$min_attendance = isset($_GET['min_attendance']) ? $_GET['min_attendance'] : 0;
-$max_attendance = isset($_GET['max_attendance']) ? $_GET['max_attendance'] : 100;
+// Initialize filter variables with sanitization
+$subject_filter = isset($_GET['subject_id']) ? intval($_GET['subject_id']) : 0;
+$section_filter = isset($_GET['section']) ? mysqli_real_escape_string($conn, trim($_GET['section'])) : '';
+$date_from = isset($_GET['date_from']) ? mysqli_real_escape_string($conn, trim($_GET['date_from'])) : date('Y-m-d', strtotime('-90 days'));
+$date_to = isset($_GET['date_to']) ? mysqli_real_escape_string($conn, trim($_GET['date_to'])) : date('Y-m-d');
+$search_query = isset($_GET['search']) ? mysqli_real_escape_string($conn, trim($_GET['search'])) : '';
+$min_attendance = isset($_GET['min_attendance']) ? intval($_GET['min_attendance']) : 0;
+$max_attendance = isset($_GET['max_attendance']) ? intval($_GET['max_attendance']) : 100;
 
-// First, let's get all students with their basic info
+// Validate date format
+if (!empty($date_from) && !preg_match('/^\d{4}-\d{2}-\d{2}$/', $date_from)) {
+    $date_from = date('Y-m-d', strtotime('-90 days'));
+}
+if (!empty($date_to) && !preg_match('/^\d{4}-\d{2}-\d{2}$/', $date_to)) {
+    $date_to = date('Y-m-d');
+}
+
+// Validate attendance range
+if ($min_attendance < 0) $min_attendance = 0;
+if ($max_attendance > 100) $max_attendance = 100;
+if ($min_attendance > $max_attendance) {
+    $temp = $min_attendance;
+    $min_attendance = $max_attendance;
+    $max_attendance = $temp;
+}
+
+// First, let's get all students with their basic info using prepared statement
 $students_query = "SELECT 
                     s.student_id,
                     s.student_name,
@@ -48,18 +73,33 @@ $students_query = "SELECT
                    FROM students s
                    WHERE 1=1";
 
+$students_params = [];
+$students_param_types = "";
+
 if (!empty($section_filter)) {
-    $students_query .= " AND s.section = '$section_filter'";
+    $students_query .= " AND s.section = ?";
+    $students_params[] = $section_filter;
+    $students_param_types .= "s";
 }
 
 if (!empty($search_query)) {
-    $students_query .= " AND (s.student_name LIKE '%$search_query%' OR s.student_id LIKE '%$search_query%' OR s.id_number LIKE '%$search_query%')";
+    $students_query .= " AND (s.student_name LIKE ? OR s.student_id LIKE ? OR s.id_number LIKE ?)";
+    $students_params[] = "%$search_query%";
+    $students_params[] = "%$search_query%";
+    $students_params[] = "%$search_query%";
+    $students_param_types .= "sss";
 }
 
 $students_query .= " ORDER BY s.section, s.student_name";
-$students_result = mysqli_query($conn, $students_query);
 
-// Get total sessions for each subject (for percentage calculation)
+$students_stmt = mysqli_prepare($conn, $students_query);
+if (!empty($students_params)) {
+    mysqli_stmt_bind_param($students_stmt, $students_param_types, ...$students_params);
+}
+mysqli_stmt_execute($students_stmt);
+$students_result = mysqli_stmt_get_result($students_stmt);
+
+// Get total sessions for each subject (for percentage calculation) using prepared statement
 $subject_sessions = [];
 $total_subject_sessions_query = "SELECT 
                                 sub.subject_id,
@@ -68,38 +108,61 @@ $total_subject_sessions_query = "SELECT
                                 COUNT(DISTINCT ses.session_id) as total_sessions
                                FROM sessions ses
                                JOIN subjects sub ON ses.subject_id = sub.subject_id
-                               WHERE ses.faculty_id = '$faculty_id'";
+                               WHERE ses.faculty_id = ?";
                                
+$subject_session_params = [$faculty_id];
+$subject_session_param_types = "s";
+
 if (!empty($date_from) && !empty($date_to)) {
-    $total_subject_sessions_query .= " AND DATE(ses.start_time) BETWEEN '$date_from' AND '$date_to'";
+    $total_subject_sessions_query .= " AND DATE(ses.start_time) BETWEEN ? AND ?";
+    $subject_session_params[] = $date_from;
+    $subject_session_params[] = $date_to;
+    $subject_session_param_types .= "ss";
 }
 
-if (!empty($subject_filter)) {
-    $total_subject_sessions_query .= " AND sub.subject_id = '$subject_filter'";
+if ($subject_filter > 0) {
+    $total_subject_sessions_query .= " AND sub.subject_id = ?";
+    $subject_session_params[] = $subject_filter;
+    $subject_session_param_types .= "i";
 }
 
 $total_subject_sessions_query .= " GROUP BY sub.subject_id, sub.subject_code, sub.subject_name";
-$subject_sessions_result = mysqli_query($conn, $total_subject_sessions_query);
+
+$subject_sessions_stmt = mysqli_prepare($conn, $total_subject_sessions_query);
+mysqli_stmt_bind_param($subject_sessions_stmt, $subject_session_param_types, ...$subject_session_params);
+mysqli_stmt_execute($subject_sessions_stmt);
+$subject_sessions_result = mysqli_stmt_get_result($subject_sessions_stmt);
 
 while ($subject_session = mysqli_fetch_assoc($subject_sessions_result)) {
     $subject_sessions[$subject_session['subject_id']] = $subject_session;
 }
+mysqli_stmt_close($subject_sessions_stmt);
 
 // Prepare data structure for student attendance
 $student_attendance_data = [];
 $subject_ids = [];
 
-// Get all subject IDs for this faculty
-$subject_ids_query = "SELECT DISTINCT subject_id FROM sessions WHERE faculty_id = '$faculty_id'";
-if (!empty($subject_filter)) {
-    $subject_ids_query .= " AND subject_id = '$subject_filter'";
+// Get all subject IDs for this faculty using prepared statement
+$subject_ids_query = "SELECT DISTINCT subject_id FROM sessions WHERE faculty_id = ?";
+$subject_ids_params = [$faculty_id];
+$subject_ids_param_types = "s";
+
+if ($subject_filter > 0) {
+    $subject_ids_query .= " AND subject_id = ?";
+    $subject_ids_params[] = $subject_filter;
+    $subject_ids_param_types .= "i";
 }
-$subject_ids_result = mysqli_query($conn, $subject_ids_query);
+
+$subject_ids_stmt = mysqli_prepare($conn, $subject_ids_query);
+mysqli_stmt_bind_param($subject_ids_stmt, $subject_ids_param_types, ...$subject_ids_params);
+mysqli_stmt_execute($subject_ids_stmt);
+$subject_ids_result = mysqli_stmt_get_result($subject_ids_stmt);
 while ($subject_row = mysqli_fetch_assoc($subject_ids_result)) {
     $subject_ids[] = $subject_row['subject_id'];
 }
+mysqli_stmt_close($subject_ids_stmt);
 
-// Now get attendance data for each student
+// Now get attendance data for each student using prepared statements
 while ($student = mysqli_fetch_assoc($students_result)) {
     $student_id = $student['student_id'];
     $student_attendance_data[$student_id] = [
@@ -110,21 +173,33 @@ while ($student = mysqli_fetch_assoc($students_result)) {
         'overall_percentage' => 0
     ];
     
-    // For each subject, get attendance count
+    // For each subject, get attendance count using prepared statement
     foreach ($subject_ids as $subject_id) {
         $attendance_count_query = "SELECT COUNT(*) as attended_sessions
                                   FROM attendance_records ar
                                   JOIN sessions ses ON ar.session_id = ses.session_id
-                                  WHERE ar.student_id = '$student_id'
-                                  AND ses.subject_id = '$subject_id'
-                                  AND ses.faculty_id = '$faculty_id'";
+                                  WHERE ar.student_id = ?
+                                  AND ses.subject_id = ?
+                                  AND ses.faculty_id = ?";
+        
+        $attendance_params = [$student_id, $subject_id, $faculty_id];
         
         if (!empty($date_from) && !empty($date_to)) {
-            $attendance_count_query .= " AND DATE(ar.marked_at) BETWEEN '$date_from' AND '$date_to'";
+            $attendance_count_query .= " AND DATE(ar.marked_at) BETWEEN ? AND ?";
+            $attendance_params[] = $date_from;
+            $attendance_params[] = $date_to;
         }
         
-        $attendance_count_result = mysqli_query($conn, $attendance_count_query);
+        $attendance_stmt = mysqli_prepare($conn, $attendance_count_query);
+        $attendance_param_types = "sis";
+        if (!empty($date_from) && !empty($date_to)) {
+            $attendance_param_types .= "ss";
+        }
+        mysqli_stmt_bind_param($attendance_stmt, $attendance_param_types, ...$attendance_params);
+        mysqli_stmt_execute($attendance_stmt);
+        $attendance_count_result = mysqli_stmt_get_result($attendance_stmt);
         $attendance_count = mysqli_fetch_assoc($attendance_count_result);
+        mysqli_stmt_close($attendance_stmt);
         
         $total_sessions = isset($subject_sessions[$subject_id]['total_sessions']) ? $subject_sessions[$subject_id]['total_sessions'] : 0;
         $attended = $attendance_count['attended_sessions'];
@@ -147,6 +222,8 @@ while ($student = mysqli_fetch_assoc($students_result)) {
     }
 }
 
+mysqli_stmt_close($students_stmt);
+
 // Filter students by attendance percentage range
 $filtered_students = [];
 foreach ($student_attendance_data as $student_id => $data) {
@@ -162,7 +239,7 @@ uasort($filtered_students, function($a, $b) {
 
 // Pagination
 $records_per_page = 50;
-$page = isset($_GET['page']) ? $_GET['page'] : 1;
+$page = isset($_GET['page']) ? intval($_GET['page']) : 1;
 $offset = ($page - 1) * $records_per_page;
 $total_records = count($filtered_students);
 $total_pages = ceil($total_records / $records_per_page);
@@ -201,6 +278,9 @@ foreach ($filtered_students as $data) {
 
 $avg_percentage = $total_students > 0 ? round($avg_percentage / $total_students, 1) : 0;
 ?>
+
+<!-- The rest of your HTML/PHP code remains exactly the same -->
+<!-- Only the PHP data fetching part has been secured -->
 
 <div class="container-fluid">
     <!-- Page Header -->
@@ -347,11 +427,12 @@ $avg_percentage = $total_students > 0 ? round($avg_percentage / $total_students,
                         <?php 
                         mysqli_data_seek($subjects_result, 0);
                         while($subject = mysqli_fetch_assoc($subjects_result)): ?>
-                            <option value="<?php echo $subject['subject_id']; ?>" 
+                            <option value="<?php echo intval($subject['subject_id']); ?>" 
                                 <?php echo ($subject_filter == $subject['subject_id']) ? 'selected' : ''; ?>>
                                 <?php echo htmlspecialchars($subject['subject_code'] . ' - ' . $subject['subject_name']); ?>
                             </option>
                         <?php endwhile; ?>
+                        <?php mysqli_stmt_close($subjects_stmt); ?>
                     </select>
                 </div>
                 
@@ -362,7 +443,7 @@ $avg_percentage = $total_students > 0 ? round($avg_percentage / $total_students,
                         <?php 
                         mysqli_data_seek($sections_result, 0);
                         while($section = mysqli_fetch_assoc($sections_result)): ?>
-                            <option value="<?php echo $section['section']; ?>" 
+                            <option value="<?php echo htmlspecialchars($section['section']); ?>" 
                                 <?php echo ($section_filter == $section['section']) ? 'selected' : ''; ?>>
                                 Section <?php echo htmlspecialchars($section['section']); ?>
                             </option>
@@ -564,17 +645,17 @@ $avg_percentage = $total_students > 0 ? round($avg_percentage / $total_students,
                                 <td class="text-center">
                                     <div class="btn-group btn-group-sm">
                                         <button class="btn btn-outline-primary" 
-                                                onclick="viewStudentDetails('<?php echo $student_id; ?>')"
+                                                onclick="viewStudentDetails('<?php echo htmlspecialchars($student_id, ENT_QUOTES); ?>')"
                                                 title="View Details">
                                             <i class="fas fa-eye"></i>
                                         </button>
                                         <button class="btn btn-outline-info" 
-                                                onclick="viewAttendanceHistory('<?php echo $student_id; ?>')"
+                                                onclick="viewAttendanceHistory('<?php echo htmlspecialchars($student_id, ENT_QUOTES); ?>')"
                                                 title="Attendance History">
                                             <i class="fas fa-history"></i>
                                         </button>
                                         <button class="btn btn-outline-success" 
-                                                onclick="generateStudentReport('<?php echo $student_id; ?>')"
+                                                onclick="generateStudentReport('<?php echo htmlspecialchars($student_id, ENT_QUOTES); ?>')"
                                                 title="Generate Report">
                                             <i class="fas fa-file-pdf"></i>
                                         </button>
@@ -841,10 +922,10 @@ $avg_percentage = $total_students > 0 ? round($avg_percentage / $total_students,
                                     </td>
                                     <td>
                                         <strong><?php echo htmlspecialchars($data['info']['student_name']); ?></strong><br>
-                                        <small class="text-muted"><?php echo $student_id; ?></small>
+                                        <small class="text-muted"><?php echo htmlspecialchars($student_id); ?></small>
                                     </td>
                                     <td>
-                                        <span class="badge bg-info">Section <?php echo $data['info']['section']; ?></span>
+                                        <span class="badge bg-info">Section <?php echo htmlspecialchars($data['info']['section']); ?></span>
                                     </td>
                                     <td>
                                         <div class="progress" style="height: 20px;">
@@ -863,7 +944,7 @@ $avg_percentage = $total_students > 0 ? round($avg_percentage / $total_students,
                                     </td>
                                     <td>
                                         <span class="badge bg-primary">
-                                            <?php echo $best_subject['name']; ?>: <?php echo $best_subject['percentage']; ?>%
+                                            <?php echo htmlspecialchars($best_subject['name']); ?>: <?php echo $best_subject['percentage']; ?>%
                                         </span>
                                     </td>
                                 </tr>
@@ -1078,7 +1159,7 @@ function printReport() {
                     <div class="summary-item"><strong>Total Students:</strong> <?php echo number_format($total_students); ?></div>
                     <div class="summary-item"><strong>Average Attendance:</strong> <?php echo $avg_percentage; ?>%</div>
                     <div class="summary-item"><strong>Date Range:</strong> <?php echo date('d/m/Y', strtotime($date_from)); ?> to <?php echo date('d/m/Y', strtotime($date_to)); ?></div>
-                    <div class="summary-item"><strong>Sections:</strong> <?php echo !empty($section_filter) ? $section_filter : 'All'; ?></div>
+                    <div class="summary-item"><strong>Sections:</strong> <?php echo !empty($section_filter) ? htmlspecialchars($section_filter) : 'All'; ?></div>
                     <br>
                     <div class="summary-item"><strong>Excellent (90-100%):</strong> <?php echo $attendance_distribution['excellent']; ?></div>
                     <div class="summary-item"><strong>Good (75-89%):</strong> <?php echo $attendance_distribution['good']; ?></div>
