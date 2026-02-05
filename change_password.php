@@ -1,5 +1,6 @@
 <?php
 require_once 'config.php';
+session_start(); // Add session start
 
 // Security check
 if (!isset($_SESSION['faculty_id']) || $_SESSION['role'] !== 'faculty') {
@@ -11,16 +12,26 @@ $faculty_id = $_SESSION['faculty_id'];
 $success = '';
 $error = '';
 
-// Get faculty details
-$faculty_query = "SELECT * FROM faculty WHERE faculty_id = '$faculty_id'";
-$result = mysqli_query($conn, $faculty_query);
+// Get faculty details using prepared statement
+$faculty_query = "SELECT faculty_id, faculty_email, password FROM faculty WHERE faculty_id = ?";
+$stmt = mysqli_prepare($conn, $faculty_query);
+mysqli_stmt_bind_param($stmt, "s", $faculty_id);
+mysqli_stmt_execute($stmt);
+$result = mysqli_stmt_get_result($stmt);
 $faculty = mysqli_fetch_assoc($result);
+
+if (!$faculty) {
+    $_SESSION['error'] = "Faculty not found.";
+    header('Location: faculty_dashboard.php');
+    exit;
+}
 
 // Handle password change
 if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['change_password'])) {
-    $current_password = $conn->real_escape_string($_POST['current_password']);
-    $new_password = $conn->real_escape_string($_POST['new_password']);
-    $confirm_password = $conn->real_escape_string($_POST['confirm_password']);
+    // Sanitize and validate inputs
+    $current_password = isset($_POST['current_password']) ? trim($_POST['current_password']) : '';
+    $new_password = isset($_POST['new_password']) ? trim($_POST['new_password']) : '';
+    $confirm_password = isset($_POST['confirm_password']) ? trim($_POST['confirm_password']) : '';
     
     // Validate inputs
     if (empty($current_password) || empty($new_password) || empty($confirm_password)) {
@@ -31,33 +42,50 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['change_password'])) {
         $error = "Password must be at least 6 characters long.";
     } else {
         // Check if faculty has set a custom password
-        if (empty($faculty['password'])) {
+        if (empty($faculty['password']) || $faculty['password'] === null) {
             // First time password setup - verify using email part
-            $email_part = strtolower(explode('@', $faculty['faculty_email'])[0]);
+            $email_parts = explode('@', $faculty['faculty_email']);
+            $email_part = strtolower($email_parts[0] ?? '');
+            
             if (strtolower($current_password) !== $email_part) {
                 $error = "Current password is incorrect.";
             } else {
-                // Hash and save new password
+                // Hash and save new password using prepared statement
                 $hashed_password = password_hash($new_password, PASSWORD_DEFAULT);
-                $update_sql = "UPDATE faculty SET password = '$hashed_password' WHERE faculty_id = '$faculty_id'";
+                $update_sql = "UPDATE faculty SET password = ? WHERE faculty_id = ?";
+                $stmt = mysqli_prepare($conn, $update_sql);
+                mysqli_stmt_bind_param($stmt, "ss", $hashed_password, $faculty_id);
                 
-                if (mysqli_query($conn, $update_sql)) {
+                if (mysqli_stmt_execute($stmt)) {
                     $success = "Password changed successfully!";
+                    // Refresh faculty data
+                    $faculty['password'] = $hashed_password;
                 } else {
                     $error = "Failed to update password. Please try again.";
                 }
+                mysqli_stmt_close($stmt);
             }
         } else {
             // Verify current password
             if (password_verify($current_password, $faculty['password'])) {
-                // Hash and save new password
-                $hashed_password = password_hash($new_password, PASSWORD_DEFAULT);
-                $update_sql = "UPDATE faculty SET password = '$hashed_password' WHERE faculty_id = '$faculty_id'";
-                
-                if (mysqli_query($conn, $update_sql)) {
-                    $success = "Password changed successfully!";
+                // Check if new password is same as old
+                if (password_verify($new_password, $faculty['password'])) {
+                    $error = "New password cannot be the same as current password.";
                 } else {
-                    $error = "Failed to update password. Please try again.";
+                    // Hash and save new password using prepared statement
+                    $hashed_password = password_hash($new_password, PASSWORD_DEFAULT);
+                    $update_sql = "UPDATE faculty SET password = ? WHERE faculty_id = ?";
+                    $stmt = mysqli_prepare($conn, $update_sql);
+                    mysqli_stmt_bind_param($stmt, "ss", $hashed_password, $faculty_id);
+                    
+                    if (mysqli_stmt_execute($stmt)) {
+                        $success = "Password changed successfully!";
+                        // Refresh faculty data
+                        $faculty['password'] = $hashed_password;
+                    } else {
+                        $error = "Failed to update password. Please try again.";
+                    }
+                    mysqli_stmt_close($stmt);
                 }
             } else {
                 $error = "Current password is incorrect.";
@@ -80,7 +108,7 @@ include 'header.php';
                 <?php if ($success): ?>
                     <div class="alert alert-success">
                         <i class="fas fa-check-circle me-2"></i>
-                        <?php echo $success; ?>
+                        <?php echo htmlspecialchars($success); ?>
                         <div class="mt-2">
                             <a href="faculty_dashboard.php" class="btn btn-sm btn-success">
                                 <i class="fas fa-home me-1"></i> Back to Dashboard
@@ -91,30 +119,30 @@ include 'header.php';
                     <?php if ($error): ?>
                         <div class="alert alert-danger">
                             <i class="fas fa-exclamation-triangle me-2"></i>
-                            <?php echo $error; ?>
+                            <?php echo htmlspecialchars($error); ?>
                         </div>
                     <?php endif; ?>
                     
-                    <form method="POST" action="">
+                    <form method="POST" action="" autocomplete="off">
                         <div class="mb-3">
-                            <label class="form-label">Current Password</label>
+                            <label for="currentPassword" class="form-label">Current Password</label>
                             <div class="input-group">
-                                <input type="password" name="current_password" class="form-control" id="currentPassword" required>
+                                <input type="password" name="current_password" class="form-control" id="currentPassword" required autocomplete="off">
                                 <button type="button" class="btn btn-outline-secondary" onclick="togglePassword('currentPassword', 'currentEye')">
                                     <i class="fas fa-eye" id="currentEye"></i>
                                 </button>
                             </div>
                             <small class="text-muted">
-                                <?php if (empty($faculty['password'])): ?>
-                                    Default is part before @ in your email
+                                <?php if (empty($faculty['password']) || $faculty['password'] === null): ?>
+                                    <i class="fas fa-info-circle me-1"></i> Default is the part before '@' in your email address
                                 <?php endif; ?>
                             </small>
                         </div>
                         
                         <div class="mb-3">
-                            <label class="form-label">New Password</label>
+                            <label for="newPassword" class="form-label">New Password</label>
                             <div class="input-group">
-                                <input type="password" name="new_password" class="form-control" id="newPassword" required>
+                                <input type="password" name="new_password" class="form-control" id="newPassword" required minlength="6" autocomplete="new-password">
                                 <button type="button" class="btn btn-outline-secondary" onclick="togglePassword('newPassword', 'newEye')">
                                     <i class="fas fa-eye" id="newEye"></i>
                                 </button>
@@ -123,9 +151,9 @@ include 'header.php';
                         </div>
                         
                         <div class="mb-4">
-                            <label class="form-label">Confirm New Password</label>
+                            <label for="confirmPassword" class="form-label">Confirm New Password</label>
                             <div class="input-group">
-                                <input type="password" name="confirm_password" class="form-control" id="confirmPassword" required>
+                                <input type="password" name="confirm_password" class="form-control" id="confirmPassword" required minlength="6" autocomplete="new-password">
                                 <button type="button" class="btn btn-outline-secondary" onclick="togglePassword('confirmPassword', 'confirmEye')">
                                     <i class="fas fa-eye" id="confirmEye"></i>
                                 </button>
