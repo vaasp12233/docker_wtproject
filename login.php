@@ -1,18 +1,19 @@
 <?php
-// ==================== CRITICAL FIX 1: Start output buffering ====================
-ob_start();
-
-// ==================== CRITICAL FIX 2: Configure session for Render ====================
+// ==================== CRITICAL FIX 1: Start session FIRST ====================
+// Configure session for Render
 ini_set('session.save_path', '/tmp');
 ini_set('session.cookie_lifetime', 86400);
 ini_set('session.gc_maxlifetime', 86400);
 
-// ==================== CRITICAL FIX 3: Start session ====================
+// Start session
 if (session_status() === PHP_SESSION_NONE) {
     session_start();
 }
 
-// ==================== CRITICAL FIX 4: Include config WITHOUT output ====================
+// ==================== CRITICAL FIX 2: Start output buffering ====================
+ob_start();
+
+// ==================== CRITICAL FIX 3: Include config ====================
 // Check if config.php exists and doesn't output
 if (file_exists('config.php')) {
     require_once 'config.php';
@@ -20,20 +21,8 @@ if (file_exists('config.php')) {
     die('Configuration file missing');
 }
 
-// ==================== FIX 5: Clean buffer before any headers ====================
-ob_end_clean();
-
-// ==================== FIX 6: Check database connection ====================
-if (!isset($conn) || !$conn) {
-    // Database connection failed, but don't die() - show error on login page
-    $GLOBALS['db_error'] = true;
-    $db_error_message = "Database connection issue. Please contact administrator.";
-} else {
-    $GLOBALS['db_error'] = false;
-}
-
-// ==================== FIX 7: Check if already logged in ====================
-// Only redirect if session has all required data
+// ==================== FIX 4: Check if already logged in ====================
+// Check if user is already logged in and has valid session
 if (isset($_SESSION['logged_in']) && $_SESSION['logged_in'] === true) {
     if (isset($_SESSION['role'])) {
         if ($_SESSION['role'] == 'faculty') {
@@ -44,9 +33,15 @@ if (isset($_SESSION['logged_in']) && $_SESSION['logged_in'] === true) {
             exit;
         }
     }
-    // If role not set, clear session and continue to login
-    session_destroy();
-    session_start();
+}
+
+// ==================== FIX 5: Check database connection ====================
+if (!isset($conn) || !$conn) {
+    // Database connection failed
+    $db_error = true;
+    $db_error_message = "Database connection issue. Please contact administrator.";
+} else {
+    $db_error = false;
 }
 
 // ==================== Handle Traditional Login ====================
@@ -55,7 +50,7 @@ $success = '';
 
 if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['login'])) {
     // Check if database is connected
-    if ($GLOBALS['db_error']) {
+    if ($db_error) {
         $error = "Database connection failed. Cannot process login.";
     } else {
         $email = mysqli_real_escape_string($conn, $_POST['email']);
@@ -77,105 +72,130 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['login'])) {
                     $sql = "SELECT faculty_id, faculty_name, faculty_email, faculty_department, password 
                             FROM faculty WHERE faculty_email = ?";
                     $stmt = mysqli_prepare($conn, $sql);
-                    mysqli_stmt_bind_param($stmt, "s", $email);
-                    mysqli_stmt_execute($stmt);
-                    $result = mysqli_stmt_get_result($stmt);
                     
-                    if (mysqli_num_rows($result) > 0) {
-                        $user = mysqli_fetch_assoc($result);
-                        
-                        // Check password (custom or default)
-                        $login_success = false;
-                        
-                        if (!empty($user['password'])) {
-                            // Check hashed custom password
-                            $login_success = password_verify($password, $user['password']);
-                            
-                            // Also check if they're using the default password format
-                            if (!$login_success) {
-                                $login_success = (strtolower($password) === $expected_password);
-                                if ($login_success) {
-                                    // They're using default password, but have custom password set
-                                    $error = "Please use your custom password, not the default email part.";
-                                    mysqli_stmt_close($stmt);
-                                    continue;
-                                }
-                            }
-                        } else {
-                            // No custom password set, use default (part before @ in email)
-                            $login_success = (strtolower($password) === $expected_password);
-                        }
-                        
-                        if ($login_success) {
-                            // Regenerate session ID for security
-                            session_regenerate_id(true);
-                            
-                            $_SESSION['faculty_id'] = $user['faculty_id'];
-                            $_SESSION['name'] = $user['faculty_name'];
-                            $_SESSION['email'] = $user['faculty_email'];
-                            $_SESSION['department'] = $user['faculty_department'];
-                            $_SESSION['role'] = 'faculty';
-                            $_SESSION['logged_in'] = true;
-                            $_SESSION['login_time'] = time();
-                            
-                            // Set flag if using default password
-                            if (empty($user['password'])) {
-                                $_SESSION['default_password'] = true;
-                            }
-                            
-                            // Commit session data
-                            session_write_close();
-                            
-                            // Redirect with buffer clean
-                            header('Location: faculty_dashboard.php');
-                            exit;
-                        } else {
-                            $error = "Invalid password. " . (empty($user['password']) ? 
-                                    "Default password is the part before '@' in your email." : 
-                                    "Please enter your custom password.");
-                        }
+                    if (!$stmt) {
+                        $error = "Database query preparation failed.";
                     } else {
-                        $error = "Email not found in faculty database.";
+                        mysqli_stmt_bind_param($stmt, "s", $email);
+                        mysqli_stmt_execute($stmt);
+                        $result = mysqli_stmt_get_result($stmt);
+                        
+                        if (mysqli_num_rows($result) > 0) {
+                            $user = mysqli_fetch_assoc($result);
+                            
+                            // Check password (custom or default)
+                            $login_success = false;
+                            
+                            if (!empty($user['password'])) {
+                                // Check hashed custom password
+                                $login_success = password_verify($password, $user['password']);
+                                
+                                // Also check if they're using the default password format
+                                if (!$login_success) {
+                                    $login_success = (strtolower($password) === $expected_password);
+                                    if ($login_success) {
+                                        // They're using default password, but have custom password set
+                                        $error = "Please use your custom password, not the default email part.";
+                                        mysqli_stmt_close($stmt);
+                                        continue;
+                                    }
+                                }
+                            } else {
+                                // No custom password set, use default (part before @ in email)
+                                $login_success = (strtolower($password) === $expected_password);
+                            }
+                            
+                            if ($login_success) {
+                                // Clear any existing session data
+                                $_SESSION = array();
+                                
+                                // Set session data
+                                $_SESSION['faculty_id'] = $user['faculty_id'];
+                                $_SESSION['name'] = $user['faculty_name'];
+                                $_SESSION['email'] = $user['faculty_email'];
+                                $_SESSION['department'] = $user['faculty_department'];
+                                $_SESSION['role'] = 'faculty';
+                                $_SESSION['logged_in'] = true;
+                                $_SESSION['login_time'] = time();
+                                
+                                // Set flag if using default password
+                                if (empty($user['password'])) {
+                                    $_SESSION['default_password'] = true;
+                                }
+                                
+                                // Regenerate session ID for security
+                                session_regenerate_id(true);
+                                
+                                // Force write session data
+                                session_write_close();
+                                
+                                // Clear output buffer
+                                ob_clean();
+                                
+                                // Redirect to faculty dashboard
+                                header('Location: faculty_dashboard.php');
+                                exit;
+                            } else {
+                                $error = "Invalid password. " . (empty($user['password']) ? 
+                                        "Default password is the part before '@' in your email." : 
+                                        "Please enter your custom password.");
+                            }
+                        } else {
+                            $error = "Email not found in faculty database.";
+                        }
+                        mysqli_stmt_close($stmt);
                     }
-                    mysqli_stmt_close($stmt);
                 } else {
                     // Student login - check if email exists
                     $sql = "SELECT student_id, student_name, student_email, section, student_department 
                             FROM students WHERE student_email = ?";
                     $stmt = mysqli_prepare($conn, $sql);
-                    mysqli_stmt_bind_param($stmt, "s", $email);
-                    mysqli_stmt_execute($stmt);
-                    $result = mysqli_stmt_get_result($stmt);
                     
-                    if (mysqli_num_rows($result) > 0) {
-                        $user = mysqli_fetch_assoc($result);
-                        
-                        // Check if password matches the part before @ in email
-                        if (strtolower($password) === $expected_password) {
-                            // Regenerate session ID for security
-                            session_regenerate_id(true);
-                            
-                            $_SESSION['student_id'] = $user['student_id'];
-                            $_SESSION['name'] = $user['student_name'];
-                            $_SESSION['email'] = $user['student_email'];
-                            $_SESSION['section'] = $user['section'];
-                            $_SESSION['department'] = $user['student_department'];
-                            $_SESSION['role'] = 'student';
-                            $_SESSION['logged_in'] = true;
-                            $_SESSION['login_time'] = time();
-                            
-                            // Commit session data
-                            session_write_close();
-                            
-                            header('Location: student_dashboard.php');
-                            exit;
-                        } else {
-                            $error = "Invalid password. Password should be the part before '@' in your email.";
-                        }
+                    if (!$stmt) {
+                        $error = "Database query preparation failed.";
                     } else {
-                        $error = "Email not found in student database.";
+                        mysqli_stmt_bind_param($stmt, "s", $email);
+                        mysqli_stmt_execute($stmt);
+                        $result = mysqli_stmt_get_result($stmt);
+                        
+                        if (mysqli_num_rows($result) > 0) {
+                            $user = mysqli_fetch_assoc($result);
+                            
+                            // Check if password matches the part before @ in email
+                            if (strtolower($password) === $expected_password) {
+                                // Clear any existing session data
+                                $_SESSION = array();
+                                
+                                // Set session data
+                                $_SESSION['student_id'] = $user['student_id'];
+                                $_SESSION['name'] = $user['student_name'];
+                                $_SESSION['email'] = $user['student_email'];
+                                $_SESSION['section'] = $user['section'];
+                                $_SESSION['department'] = $user['student_department'];
+                                $_SESSION['role'] = 'student';
+                                $_SESSION['logged_in'] = true;
+                                $_SESSION['login_time'] = time();
+                                
+                                // Regenerate session ID for security
+                                session_regenerate_id(true);
+                                
+                                // Force write session data
+                                session_write_close();
+                                
+                                // Clear output buffer
+                                ob_clean();
+                                
+                                // Redirect to student dashboard
+                                header('Location: student_dashboard.php');
+                                exit;
+                            } else {
+                                $error = "Invalid password. Password should be the part before '@' in your email.";
+                            }
+                        } else {
+                            $error = "Email not found in student database.";
+                        }
+                        mysqli_stmt_close($stmt);
                     }
-                    mysqli_stmt_close($stmt);
                 }
             }
         }
@@ -378,9 +398,33 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['login'])) {
             margin-top: 5px;
             display: block;
         }
+        
+        /* Debug info - remove in production */
+        .debug-info {
+            position: fixed;
+            top: 10px;
+            left: 10px;
+            background: rgba(0,0,0,0.7);
+            color: white;
+            padding: 10px;
+            border-radius: 5px;
+            font-size: 12px;
+            z-index: 10000;
+            display: none; /* Change to block to debug */
+        }
     </style>
 </head>
 <body>
+    <!-- Debug info - remove in production -->
+    <div class="debug-info">
+        <?php 
+        echo "Session status: " . session_status() . "<br>";
+        echo "Session ID: " . session_id() . "<br>";
+        echo "Logged in: " . (isset($_SESSION['logged_in']) ? 'Yes' : 'No') . "<br>";
+        echo "Role: " . (isset($_SESSION['role']) ? $_SESSION['role'] : 'Not set');
+        ?>
+    </div>
+    
     <div class="login-card">
         <div class="logo">
             <i class="fas fa-graduation-cap"></i>
@@ -620,3 +664,4 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['login'])) {
     </style>
 </body>
 </html>
+<?php ob_end_flush(); ?>
