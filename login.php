@@ -9,130 +9,141 @@ if (session_status() === PHP_SESSION_NONE) {
 // Include config
 require_once 'config.php'; 
 
+// Check database connection FIRST
+if (!$conn) {
+    $db_error = "Database connection failed. System temporarily unavailable.";
+    // Don't exit, just show error
+}
+
 // Redirect if already logged in
 if (isset($_SESSION['logged_in']) && $_SESSION['logged_in'] === true) {
-    if ($_SESSION['role'] == 'faculty') {
-        header('Location: faculty_dashboard.php');
-        exit;
-    } elseif ($_SESSION['role'] == 'student') {
-        header('Location: student_dashboard.php');
-        exit;
+    if (isset($_SESSION['role'])) {
+        if ($_SESSION['role'] == 'faculty') {
+            header('Location: faculty_dashboard.php');
+            exit;
+        } elseif ($_SESSION['role'] == 'student') {
+            header('Location: student_dashboard.php');
+            exit;
+        }
     }
 }
 
 // Handle Traditional Login
 $error = '';
 if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['login'])) {
-    $email = isset($_POST['email']) ? mysqli_real_escape_string($conn, trim($_POST['email'])) : '';
-    $password = isset($_POST['password']) ? mysqli_real_escape_string($conn, trim($_POST['password'])) : '';
-    $role = isset($_POST['role']) ? mysqli_real_escape_string($conn, $_POST['role']) : 'faculty';
     
-    if (empty($email) || empty($password)) {
-        $error = "Please enter both email and password.";
+    // Check if database is connected
+    if (!$conn) {
+        $error = "Database connection failed. Please try again later.";
     } else {
-        // Get the part before @ in email as expected password
-        $email_parts = explode('@', $email);
-        if (count($email_parts) < 2) {
-            $error = "Invalid email format. Must contain '@' symbol.";
+        $email = isset($_POST['email']) ? mysqli_real_escape_string($conn, trim($_POST['email'])) : '';
+        $password = isset($_POST['password']) ? trim($_POST['password']) : '';
+        $role = isset($_POST['role']) ? $_POST['role'] : 'faculty';
+        
+        if (empty($email) || empty($password)) {
+            $error = "Please enter both email and password.";
         } else {
-            $expected_password = strtolower($email_parts[0]);
-            
-            if ($role == 'faculty') {
-                // Faculty login - check if email exists using prepared statement
-                $sql = "SELECT faculty_id, faculty_name, faculty_email, faculty_department, password 
-                        FROM faculty WHERE faculty_email = ?";
-                $stmt = mysqli_prepare($conn, $sql);
-                
-                if ($stmt) {
-                    mysqli_stmt_bind_param($stmt, "s", $email);
-                    mysqli_stmt_execute($stmt);
-                    $result = mysqli_stmt_get_result($stmt);
-                    
-                    if (mysqli_num_rows($result) > 0) {
-                        $user = mysqli_fetch_assoc($result);
-                        
-                        // Check password (custom or default)
-                        $login_success = false;
-                        
-                        if (!empty($user['password'])) {
-                            // Check hashed custom password
-                            $login_success = password_verify($password, $user['password']);
-                            
-                            // Also check default password for users who still use it
-                            if (!$login_success && strtolower($password) === $expected_password) {
-                                // They're using default password but have custom password set
-                                $error = "Please use your custom password, not the default email part.";
-                                mysqli_stmt_close($stmt);
-                                // Continue to show form with error
-                                goto display_form;
-                            }
-                        } else {
-                            // Check default password (part before @ in email)
-                            $login_success = (strtolower($password) === $expected_password);
-                        }
-                        
-                        if ($login_success) {
-                            $_SESSION['faculty_id'] = $user['faculty_id'];
-                            $_SESSION['name'] = $user['faculty_name'];
-                            $_SESSION['email'] = $user['faculty_email'];
-                            $_SESSION['department'] = $user['faculty_department'];
-                            $_SESSION['role'] = 'faculty';
-                            $_SESSION['logged_in'] = true;
-                            
-                            // Set flag if using default password
-                            if (empty($user['password'])) {
-                                $_SESSION['default_password'] = true;
-                            }
-                            
-                            // Redirect immediately
-                            header('Location: faculty_dashboard.php');
-                            exit;
-                        } else {
-                            $error = "Invalid password. " . (empty($user['password']) ? 
-                                    "Default password is the part before '@' in your email." : 
-                                    "Please enter your custom password.");
-                        }
-                    } else {
-                        $error = "Email not found in faculty database.";
-                    }
-                    mysqli_stmt_close($stmt);
-                } else {
-                    $error = "Database error. Please try again.";
-                }
+            // Validate email format
+            if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
+                $error = "Invalid email format.";
             } else {
-                // Student login - check if email exists using prepared statement
-                $sql = "SELECT student_id, student_name, student_email, section, student_department 
-                        FROM students WHERE student_email = ?";
-                $stmt = mysqli_prepare($conn, $sql);
+                // Get the part before @ in email
+                $email_parts = explode('@', $email);
+                $expected_password = strtolower($email_parts[0]);
                 
-                if ($stmt) {
-                    mysqli_stmt_bind_param($stmt, "s", $email);
-                    mysqli_stmt_execute($stmt);
-                    $result = mysqli_stmt_get_result($stmt);
+                if ($role == 'faculty') {
+                    // Faculty login
+                    $sql = "SELECT faculty_id, faculty_name, faculty_email, faculty_department, password 
+                            FROM faculty WHERE LOWER(faculty_email) = LOWER(?)";
+                    $stmt = mysqli_prepare($conn, $sql);
                     
-                    if (mysqli_num_rows($result) > 0) {
-                        $user = mysqli_fetch_assoc($result);
+                    if ($stmt) {
+                        mysqli_stmt_bind_param($stmt, "s", $email);
+                        mysqli_stmt_execute($stmt);
+                        $result = mysqli_stmt_get_result($stmt);
                         
-                        // Check if password matches the part before @ in email
-                        if (strtolower($password) === $expected_password) {
-                            $_SESSION['student_id'] = $user['student_id'];
-                            $_SESSION['name'] = $user['student_name'];
-                            $_SESSION['email'] = $user['student_email'];
-                            $_SESSION['section'] = $user['section'];
-                            $_SESSION['department'] = $user['student_department'];
-                            $_SESSION['role'] = 'student';
-                            $_SESSION['logged_in'] = true;
-                            header('Location: student_dashboard.php');
-                            exit;
+                        if (mysqli_num_rows($result) > 0) {
+                            $user = mysqli_fetch_assoc($result);
+                            $login_success = false;
+                            
+                            // Check if custom password is set
+                            if (!empty($user['password'])) {
+                                // Verify custom password
+                                if (password_verify($password, $user['password'])) {
+                                    $login_success = true;
+                                } elseif (strtolower($password) === $expected_password) {
+                                    $error = "Custom password is required. Please use your custom password, not the default.";
+                                    mysqli_stmt_close($stmt);
+                                    goto display_form;
+                                }
+                            } else {
+                                // Check default password
+                                if (strtolower($password) === $expected_password) {
+                                    $login_success = true;
+                                }
+                            }
+                            
+                            if ($login_success) {
+                                $_SESSION['faculty_id'] = $user['faculty_id'];
+                                $_SESSION['name'] = $user['faculty_name'];
+                                $_SESSION['email'] = $user['faculty_email'];
+                                $_SESSION['department'] = $user['faculty_department'];
+                                $_SESSION['role'] = 'faculty';
+                                $_SESSION['logged_in'] = true;
+                                
+                                // Set default password flag
+                                $_SESSION['default_password'] = empty($user['password']);
+                                
+                                mysqli_stmt_close($stmt);
+                                header('Location: faculty_dashboard.php');
+                                exit;
+                            } else {
+                                $error = "Invalid password.";
+                            }
                         } else {
-                            $error = "Invalid password. Password should be the part before '@' in your email.";
+                            $error = "Email not found in faculty database.";
                         }
+                        mysqli_stmt_close($stmt);
                     } else {
-                        $error = "Email not found in student database.";
+                        $error = "Database error. Please try again.";
                     }
-                    mysqli_stmt_close($stmt);
                 } else {
-                    $error = "Database error. Please try again.";
+                    // Student login
+                    $sql = "SELECT student_id, student_name, student_email, section, student_department 
+                            FROM students WHERE LOWER(student_email) = LOWER(?)";
+                    $stmt = mysqli_prepare($conn, $sql);
+                    
+                    if ($stmt) {
+                        mysqli_stmt_bind_param($stmt, "s", $email);
+                        mysqli_stmt_execute($stmt);
+                        $result = mysqli_stmt_get_result($stmt);
+                        
+                        if (mysqli_num_rows($result) > 0) {
+                            $user = mysqli_fetch_assoc($result);
+                            
+                            // Check password (part before @ in email)
+                            if (strtolower($password) === $expected_password) {
+                                $_SESSION['student_id'] = $user['student_id'];
+                                $_SESSION['name'] = $user['student_name'];
+                                $_SESSION['email'] = $user['student_email'];
+                                $_SESSION['section'] = $user['section'];
+                                $_SESSION['department'] = $user['student_department'];
+                                $_SESSION['role'] = 'student';
+                                $_SESSION['logged_in'] = true;
+                                
+                                mysqli_stmt_close($stmt);
+                                header('Location: student_dashboard.php');
+                                exit;
+                            } else {
+                                $error = "Invalid password. Use the part before '@' in your email.";
+                            }
+                        } else {
+                            $error = "Email not found in student database.";
+                        }
+                        mysqli_stmt_close($stmt);
+                    } else {
+                        $error = "Database error. Please try again.";
+                    }
                 }
             }
         }
@@ -347,10 +358,28 @@ display_form:
             <p class="text-muted">Department of Computer Science</p>
         </div>
         
+        <?php if (isset($db_error)): ?>
+            <div class="db-error">
+                <i class="fas fa-database me-2"></i>
+                <?php echo htmlspecialchars($db_error); ?>
+            </div>
+        <?php endif; ?>
+        
         <?php if ($error): ?>
             <div class="alert alert-danger alert-dismissible fade show" role="alert">
                 <i class="fas fa-exclamation-triangle me-2"></i>
                 <?php echo htmlspecialchars($error); ?>
+                <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+            </div>
+        <?php endif; ?>
+        
+        <?php 
+        // Show logout message if redirected from logout
+        if (isset($_GET['message']) && $_GET['message'] == 'logged_out'): 
+        ?>
+            <div class="alert alert-success alert-dismissible fade show" role="alert">
+                <i class="fas fa-check-circle me-2"></i>
+                Successfully logged out.
                 <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
             </div>
         <?php endif; ?>
@@ -468,6 +497,14 @@ display_form:
                 return;
             }
             
+            // Validate email format
+            const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+            if (!emailRegex.test(email)) {
+                e.preventDefault();
+                alert('Please enter a valid email address');
+                return;
+            }
+            
             // Show loading state
             loginButton.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i> Logging in...';
             loginButton.disabled = true;
@@ -518,17 +555,19 @@ display_form:
         
         // Button hover effects
         const translateBtn = document.getElementById('translateBtn');
-        translateBtn.addEventListener('mouseenter', function() {
-            this.style.transform = 'scale(1.1)';
-            this.style.boxShadow = '0 6px 20px rgba(26, 115, 232, 0.5)';
-            this.style.background = 'linear-gradient(135deg, #0d62d9, #0a56c4)';
-        });
-        
-        translateBtn.addEventListener('mouseleave', function() {
-            this.style.transform = 'scale(1)';
-            this.style.boxShadow = '0 4px 15px rgba(26, 115, 232, 0.4)';
-            this.style.background = 'linear-gradient(135deg, #1a73e8, #0d62d9)';
-        });
+        if (translateBtn) {
+            translateBtn.addEventListener('mouseenter', function() {
+                this.style.transform = 'scale(1.1)';
+                this.style.boxShadow = '0 6px 20px rgba(26, 115, 232, 0.5)';
+                this.style.background = 'linear-gradient(135deg, #0d62d9, #0a56c4)';
+            });
+            
+            translateBtn.addEventListener('mouseleave', function() {
+                this.style.transform = 'scale(1)';
+                this.style.boxShadow = '0 4px 15px rgba(26, 115, 232, 0.4)';
+                this.style.background = 'linear-gradient(135deg, #1a73e8, #0d62d9)';
+            });
+        }
     </script>
     
     <style>
