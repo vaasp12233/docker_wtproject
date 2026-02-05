@@ -1,63 +1,151 @@
 <?php
-session_start();
-require_once 'config.php';
-include 'header.php';
-// Check if user is logged in and is a student
-if (!isset($_SESSION['student_id']) || $_SESSION['role'] !== 'student') {
-    header('Location: login.php');
-    exit();
+// attendance_viewer.php - Fixed for Render + Aiven
+
+// ==================== CRITICAL: Start output buffering ====================
+if (!ob_get_level()) {
+    ob_start();
 }
 
-$student_id = $_SESSION['student_id'];
+// ==================== Configure session for Render ====================
+ini_set('session.save_path', '/tmp');
+ini_set('session.cookie_lifetime', 86400);
+
+// ==================== Start session ====================
+if (session_status() === PHP_SESSION_NONE) {
+    @session_start();
+}
+
+// ==================== Include database config ====================
+require_once 'config.php';
+
+// ==================== Check if user is logged in and is a student ====================
+if (!isset($_SESSION['logged_in']) || $_SESSION['logged_in'] !== true) {
+    if (ob_get_length() > 0) {
+        ob_end_clean();
+    }
+    header('Location: login.php');
+    exit;
+}
+
+if (!isset($_SESSION['role']) || $_SESSION['role'] !== 'student') {
+    if (ob_get_length() > 0) {
+        ob_end_clean();
+    }
+    header('Location: login.php');
+    exit;
+}
+
+$student_id = $_SESSION['student_id'] ?? null;
+if (!$student_id) {
+    if (ob_get_length() > 0) {
+        ob_end_clean();
+    }
+    header('Location: login.php');
+    exit;
+}
+
 $page_title = "Attendance Viewer";
 
-// Fetch student details including section
-$student_query = "SELECT * FROM students WHERE student_id = '$student_id'";
-$student_result = mysqli_query($conn, $student_query);
-$student = mysqli_fetch_assoc($student_result);
-$student_section = $student['section'];
+// ==================== Clean buffer before output ====================
+if (ob_get_length() > 0 && !headers_sent()) {
+    ob_end_clean();
+    ob_start();
+}
 
-// FIX 1: Get TOTAL classes for student's section (A or B) - all sessions they should attend
-$total_sessions_query = "SELECT COUNT(*) as total_sessions 
-                         FROM sessions 
-                         WHERE section_targeted = '$student_section'";
-$total_sessions_result = mysqli_query($conn, $total_sessions_query);
-$total_sessions_data = mysqli_fetch_assoc($total_sessions_result);
-$total_classes_for_section = $total_sessions_data['total_sessions'] ?: 0;
+// ==================== Fetch student details including section ====================
+$student = null;
+$student_section = '';
+$student_query = "SELECT * FROM students WHERE student_id = ?";
+$student_stmt = mysqli_prepare($conn, $student_query);
+if ($student_stmt) {
+    mysqli_stmt_bind_param($student_stmt, "s", $student_id);
+    mysqli_stmt_execute($student_stmt);
+    $student_result = mysqli_stmt_get_result($student_stmt);
+    $student = mysqli_fetch_assoc($student_result);
+    mysqli_stmt_close($student_stmt);
+    
+    if ($student) {
+        $student_section = $student['section'] ?? '';
+    } else {
+        // Student not found
+        if (ob_get_length() > 0) {
+            ob_end_clean();
+        }
+        header('Location: login.php');
+        exit;
+    }
+} else {
+    // Database error
+    die("Database error");
+}
 
-// FIX 2: Get attended classes (actual attendance records)
+// ==================== FIX 1: Get TOTAL classes for student's section ====================
+$total_classes_for_section = 0;
+if ($student_section) {
+    $total_sessions_query = "SELECT COUNT(*) as total_sessions 
+                             FROM sessions 
+                             WHERE section_targeted = ?";
+    $total_sessions_stmt = mysqli_prepare($conn, $total_sessions_query);
+    if ($total_sessions_stmt) {
+        mysqli_stmt_bind_param($total_sessions_stmt, "s", $student_section);
+        mysqli_stmt_execute($total_sessions_stmt);
+        $total_sessions_result = mysqli_stmt_get_result($total_sessions_stmt);
+        $total_sessions_data = mysqli_fetch_assoc($total_sessions_result);
+        $total_classes_for_section = $total_sessions_data['total_sessions'] ?: 0;
+        mysqli_stmt_close($total_sessions_stmt);
+    }
+}
+
+// ==================== FIX 2: Get attended classes ====================
+$attended_count = 0;
 $attended_query = "SELECT COUNT(*) as attended_count 
                    FROM attendance_records 
-                   WHERE student_id = '$student_id'";
-$attended_result = mysqli_query($conn, $attended_query);
-$attended_data = mysqli_fetch_assoc($attended_result);
-$attended_count = $attended_data['attended_count'] ?: 0;
+                   WHERE student_id = ?";
+$attended_stmt = mysqli_prepare($conn, $attended_query);
+if ($attended_stmt) {
+    mysqli_stmt_bind_param($attended_stmt, "s", $student_id);
+    mysqli_stmt_execute($attended_stmt);
+    $attended_result = mysqli_stmt_get_result($attended_stmt);
+    $attended_data = mysqli_fetch_assoc($attended_result);
+    $attended_count = $attended_data['attended_count'] ?: 0;
+    mysqli_stmt_close($attended_stmt);
+}
 
-// Calculate attendance percentage
+// ==================== Calculate attendance percentage ====================
 $attendance_percentage = ($total_classes_for_section > 0) 
     ? round(($attended_count / $total_classes_for_section) * 100, 2) 
     : 0;
 
-// Query for detailed subject-wise statistics
-$subject_details_query = "SELECT 
-    s.subject_id,
-    s.subject_code,
-    s.subject_name,
-    COUNT(ar.record_id) as classes_attended,
-    COUNT(ses.session_id) as total_sessions_for_subject,
-    GROUP_CONCAT(DISTINCT f.faculty_name ORDER BY f.faculty_name SEPARATOR ', ') as faculties,
-    GROUP_CONCAT(DISTINCT ses.class_type ORDER BY ses.class_type SEPARATOR ', ') as class_types
-FROM subjects s
-LEFT JOIN sessions ses ON s.subject_id = ses.subject_id AND ses.section_targeted = '$student_section'
-LEFT JOIN attendance_records ar ON ses.session_id = ar.session_id AND ar.student_id = '$student_id'
-LEFT JOIN faculty f ON ses.faculty_id = f.faculty_id
-WHERE s.subject_id IN (SELECT DISTINCT subject_id FROM sessions WHERE section_targeted = '$student_section')
-GROUP BY s.subject_id, s.subject_code, s.subject_name
-ORDER BY s.subject_name";
+// ==================== Query for detailed subject-wise statistics ====================
+$subject_details_result = null;
+if ($student_section) {
+    $subject_details_query = "SELECT 
+        s.subject_id,
+        s.subject_code,
+        s.subject_name,
+        COUNT(ar.record_id) as classes_attended,
+        COUNT(ses.session_id) as total_sessions_for_subject,
+        GROUP_CONCAT(DISTINCT f.faculty_name ORDER BY f.faculty_name SEPARATOR ', ') as faculties,
+        GROUP_CONCAT(DISTINCT ses.class_type ORDER BY ses.class_type SEPARATOR ', ') as class_types
+    FROM subjects s
+    LEFT JOIN sessions ses ON s.subject_id = ses.subject_id AND ses.section_targeted = ?
+    LEFT JOIN attendance_records ar ON ses.session_id = ar.session_id AND ar.student_id = ?
+    LEFT JOIN faculty f ON ses.faculty_id = f.faculty_id
+    WHERE s.subject_id IN (SELECT DISTINCT subject_id FROM sessions WHERE section_targeted = ?)
+    GROUP BY s.subject_id, s.subject_code, s.subject_name
+    ORDER BY s.subject_name";
+    
+    $subject_details_stmt = mysqli_prepare($conn, $subject_details_query);
+    if ($subject_details_stmt) {
+        mysqli_stmt_bind_param($subject_details_stmt, "sss", $student_section, $student_id, $student_section);
+        mysqli_stmt_execute($subject_details_stmt);
+        $subject_details_result = mysqli_stmt_get_result($subject_details_stmt);
+        mysqli_stmt_close($subject_details_stmt);
+    }
+}
 
-$subject_details_result = mysqli_query($conn, $subject_details_query);
-
-// Get attendance records with session details
+// ==================== Get attendance records with session details ====================
+$records_result = null;
 $records_query = "SELECT 
     ar.record_id,
     ar.session_id,
@@ -74,78 +162,111 @@ FROM attendance_records ar
 LEFT JOIN sessions ses ON ar.session_id = ses.session_id
 LEFT JOIN subjects s ON ses.subject_id = s.subject_id
 LEFT JOIN faculty f ON ses.faculty_id = f.faculty_id
-WHERE ar.student_id = '$student_id'
+WHERE ar.student_id = ?
 ORDER BY ar.marked_at DESC";
 
-$records_result = mysqli_query($conn, $records_query);
+$records_stmt = mysqli_prepare($conn, $records_query);
+if ($records_stmt) {
+    mysqli_stmt_bind_param($records_stmt, "s", $student_id);
+    mysqli_stmt_execute($records_stmt);
+    $records_result = mysqli_stmt_get_result($records_stmt);
+    mysqli_stmt_close($records_stmt);
+}
 
-// Query for monthly attendance trend (BOTH total and attended)
-$monthly_query = "SELECT 
-    DATE_FORMAT(ses.start_time, '%Y-%m') as month,
-    COUNT(ses.session_id) as total_sessions,
-    COUNT(ar.record_id) as attended_sessions
-FROM sessions ses
-LEFT JOIN attendance_records ar ON ses.session_id = ar.session_id AND ar.student_id = '$student_id'
-WHERE ses.section_targeted = '$student_section'
-GROUP BY DATE_FORMAT(ses.start_time, '%Y-%m')
-ORDER BY month DESC
-LIMIT 6";
-
-$monthly_result = mysqli_query($conn, $monthly_query);
+// ==================== Query for monthly attendance trend ====================
 $monthly_data = [];
 $month_labels = [];
 $month_total_counts = [];
 $month_attended_counts = [];
 
-while ($row = mysqli_fetch_assoc($monthly_result)) {
-    $monthly_data[] = $row;
-    $month_labels[] = date('M', strtotime($row['month'] . '-01'));
-    $month_total_counts[] = $row['total_sessions'];
-    $month_attended_counts[] = $row['attended_sessions'];
+if ($student_section) {
+    $monthly_query = "SELECT 
+        DATE_FORMAT(ses.start_time, '%Y-%m') as month,
+        COUNT(ses.session_id) as total_sessions,
+        COUNT(ar.record_id) as attended_sessions
+    FROM sessions ses
+    LEFT JOIN attendance_records ar ON ses.session_id = ar.session_id AND ar.student_id = ?
+    WHERE ses.section_targeted = ?
+    GROUP BY DATE_FORMAT(ses.start_time, '%Y-%m')
+    ORDER BY month DESC
+    LIMIT 6";
+    
+    $monthly_stmt = mysqli_prepare($conn, $monthly_query);
+    if ($monthly_stmt) {
+        mysqli_stmt_bind_param($monthly_stmt, "ss", $student_id, $student_section);
+        mysqli_stmt_execute($monthly_stmt);
+        $monthly_result = mysqli_stmt_get_result($monthly_stmt);
+        
+        while ($row = mysqli_fetch_assoc($monthly_result)) {
+            $monthly_data[] = $row;
+            $month_labels[] = date('M', strtotime($row['month'] . '-01'));
+            $month_total_counts[] = $row['total_sessions'];
+            $month_attended_counts[] = $row['attended_sessions'];
+        }
+        mysqli_stmt_close($monthly_stmt);
+        
+        // Reverse for chronological order
+        $month_labels = array_reverse($month_labels);
+        $month_total_counts = array_reverse($month_total_counts);
+        $month_attended_counts = array_reverse($month_attended_counts);
+    }
 }
 
-// Reverse for chronological order
-$month_labels = array_reverse($month_labels);
-$month_total_counts = array_reverse($month_total_counts);
-$month_attended_counts = array_reverse($month_attended_counts);
-
-// Query for subject-wise attendance for pie chart
-$subject_query = "SELECT 
-    s.subject_name,
-    COUNT(ar.record_id) as attended_count,
-    COUNT(ses.session_id) as total_count,
-    ROUND((COUNT(ar.record_id) * 100.0 / COUNT(ses.session_id)), 2) as attendance_percentage
-FROM subjects s
-LEFT JOIN sessions ses ON s.subject_id = ses.subject_id AND ses.section_targeted = '$student_section'
-LEFT JOIN attendance_records ar ON ses.session_id = ar.session_id AND ar.student_id = '$student_id'
-WHERE s.subject_id IN (SELECT DISTINCT subject_id FROM sessions WHERE section_targeted = '$student_section')
-GROUP BY s.subject_id, s.subject_name
-HAVING total_count > 0
-ORDER BY s.subject_name";
-
-$subject_result = mysqli_query($conn, $subject_query);
+// ==================== Query for subject-wise attendance for pie chart ====================
 $subject_data = [];
 $subject_labels = [];
 $subject_attendance_percentages = [];
 
-while ($row = mysqli_fetch_assoc($subject_result)) {
-    $subject_data[] = $row;
-    $subject_labels[] = $row['subject_name'];
-    $subject_attendance_percentages[] = $row['attendance_percentage'];
+if ($student_section) {
+    $subject_query = "SELECT 
+        s.subject_name,
+        COUNT(ar.record_id) as attended_count,
+        COUNT(ses.session_id) as total_count,
+        ROUND((COUNT(ar.record_id) * 100.0 / NULLIF(COUNT(ses.session_id), 0)), 2) as attendance_percentage
+    FROM subjects s
+    LEFT JOIN sessions ses ON s.subject_id = ses.subject_id AND ses.section_targeted = ?
+    LEFT JOIN attendance_records ar ON ses.session_id = ar.session_id AND ar.student_id = ?
+    WHERE s.subject_id IN (SELECT DISTINCT subject_id FROM sessions WHERE section_targeted = ?)
+    GROUP BY s.subject_id, s.subject_name
+    HAVING total_count > 0
+    ORDER BY s.subject_name";
+    
+    $subject_stmt = mysqli_prepare($conn, $subject_query);
+    if ($subject_stmt) {
+        mysqli_stmt_bind_param($subject_stmt, "sss", $student_section, $student_id, $student_section);
+        mysqli_stmt_execute($subject_stmt);
+        $subject_result = mysqli_stmt_get_result($subject_stmt);
+        
+        while ($row = mysqli_fetch_assoc($subject_result)) {
+            $subject_data[] = $row;
+            $subject_labels[] = $row['subject_name'];
+            $subject_attendance_percentages[] = $row['attendance_percentage'];
+        }
+        mysqli_stmt_close($subject_stmt);
+    }
 }
 
-// Handle filters
-$where_clause = "WHERE ar.student_id = '$student_id'";
+// ==================== Handle filters ====================
+$where_clause = "WHERE ar.student_id = ?";
+$filter_params = [$student_id];
+$filter_types = "s";
+
 if (isset($_GET['subject']) && !empty($_GET['subject'])) {
     $subject_filter = mysqli_real_escape_string($conn, $_GET['subject']);
-    $where_clause .= " AND s.subject_name LIKE '%$subject_filter%'";
+    $where_clause .= " AND s.subject_name LIKE ?";
+    $filter_params[] = "%$subject_filter%";
+    $filter_types .= "s";
 }
 
 if (isset($_GET['month']) && !empty($_GET['month'])) {
     $month_filter = mysqli_real_escape_string($conn, $_GET['month']);
-    $where_clause .= " AND DATE_FORMAT(ar.marked_at, '%Y-%m') = '$month_filter'";
+    $where_clause .= " AND DATE_FORMAT(ar.marked_at, '%Y-%m') = ?";
+    $filter_params[] = $month_filter;
+    $filter_types .= "s";
 }
 
+$filtered_result = null;
+$total_filtered = 0;
 $filtered_query = "SELECT 
     ar.record_id,
     ar.session_id,
@@ -165,42 +286,76 @@ LEFT JOIN faculty f ON ses.faculty_id = f.faculty_id
 $where_clause
 ORDER BY ar.marked_at DESC";
 
-$filtered_result = mysqli_query($conn, $filtered_query);
-$total_filtered = mysqli_num_rows($filtered_result);
+$filtered_stmt = mysqli_prepare($conn, $filtered_query);
+if ($filtered_stmt) {
+    mysqli_stmt_bind_param($filtered_stmt, $filter_types, ...$filter_params);
+    mysqli_stmt_execute($filtered_stmt);
+    $filtered_result = mysqli_stmt_get_result($filtered_stmt);
+    $total_filtered = mysqli_num_rows($filtered_result);
+    mysqli_stmt_close($filtered_stmt);
+}
 
-// For dropdowns - Get unique months and subjects
-$months_query = "SELECT DISTINCT DATE_FORMAT(ses.start_time, '%Y-%m') as month_value, 
-                DATE_FORMAT(ses.start_time, '%M %Y') as month_display
-                FROM sessions ses
-                WHERE ses.section_targeted = '$student_section'
-                ORDER BY month_value DESC";
-$months_result = mysqli_query($conn, $months_query);
+// ==================== For dropdowns - Get unique months and subjects ====================
+$months_result = null;
+if ($student_section) {
+    $months_query = "SELECT DISTINCT DATE_FORMAT(ses.start_time, '%Y-%m') as month_value, 
+                    DATE_FORMAT(ses.start_time, '%M %Y') as month_display
+                    FROM sessions ses
+                    WHERE ses.section_targeted = ?
+                    ORDER BY month_value DESC";
+    $months_stmt = mysqli_prepare($conn, $months_query);
+    if ($months_stmt) {
+        mysqli_stmt_bind_param($months_stmt, "s", $student_section);
+        mysqli_stmt_execute($months_stmt);
+        $months_result = mysqli_stmt_get_result($months_stmt);
+        mysqli_stmt_close($months_stmt);
+    }
+}
 
-$subjects_query = "SELECT DISTINCT s.subject_id, s.subject_name
-                  FROM subjects s
-                  WHERE s.subject_id IN (SELECT DISTINCT subject_id FROM sessions WHERE section_targeted = '$student_section')
-                  ORDER BY s.subject_name";
-$subjects_result = mysqli_query($conn, $subjects_query);
+$subjects_result = null;
+if ($student_section) {
+    $subjects_query = "SELECT DISTINCT s.subject_id, s.subject_name
+                      FROM subjects s
+                      WHERE s.subject_id IN (SELECT DISTINCT subject_id FROM sessions WHERE section_targeted = ?)
+                      ORDER BY s.subject_name";
+    $subjects_stmt = mysqli_prepare($conn, $subjects_query);
+    if ($subjects_stmt) {
+        mysqli_stmt_bind_param($subjects_stmt, "s", $student_section);
+        mysqli_stmt_execute($subjects_stmt);
+        $subjects_result = mysqli_stmt_get_result($subjects_stmt);
+        mysqli_stmt_close($subjects_stmt);
+    }
+}
 
-// FIX: Also get missed sessions
-$missed_sessions_query = "SELECT 
-    ses.session_id,
-    ses.start_time,
-    s.subject_code,
-    s.subject_name,
-    f.faculty_name,
-    ses.section_targeted,
-    ses.class_type
-FROM sessions ses
-LEFT JOIN subjects s ON ses.subject_id = s.subject_id
-LEFT JOIN faculty f ON ses.faculty_id = f.faculty_id
-LEFT JOIN attendance_records ar ON ses.session_id = ar.session_id AND ar.student_id = '$student_id'
-WHERE ses.section_targeted = '$student_section' 
-AND ar.record_id IS NULL
-ORDER BY ses.start_time DESC";
-
-$missed_result = mysqli_query($conn, $missed_sessions_query);
-$missed_count = mysqli_num_rows($missed_result);
+// ==================== Also get missed sessions ====================
+$missed_result = null;
+$missed_count = 0;
+if ($student_section) {
+    $missed_sessions_query = "SELECT 
+        ses.session_id,
+        ses.start_time,
+        s.subject_code,
+        s.subject_name,
+        f.faculty_name,
+        ses.section_targeted,
+        ses.class_type
+    FROM sessions ses
+    LEFT JOIN subjects s ON ses.subject_id = s.subject_id
+    LEFT JOIN faculty f ON ses.faculty_id = f.faculty_id
+    LEFT JOIN attendance_records ar ON ses.session_id = ar.session_id AND ar.student_id = ?
+    WHERE ses.section_targeted = ? 
+    AND ar.record_id IS NULL
+    ORDER BY ses.start_time DESC";
+    
+    $missed_stmt = mysqli_prepare($conn, $missed_sessions_query);
+    if ($missed_stmt) {
+        mysqli_stmt_bind_param($missed_stmt, "ss", $student_id, $student_section);
+        mysqli_stmt_execute($missed_stmt);
+        $missed_result = mysqli_stmt_get_result($missed_stmt);
+        $missed_count = mysqli_num_rows($missed_result);
+        mysqli_stmt_close($missed_stmt);
+    }
+}
 ?>
 
 <!DOCTYPE html>
@@ -208,7 +363,7 @@ $missed_count = mysqli_num_rows($missed_result);
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title><?php echo $page_title; ?> - Smart Attendance System</title>
+    <title><?php echo htmlspecialchars($page_title); ?> - Smart Attendance System</title>
     <!-- Bootstrap CSS -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <!-- Font Awesome -->
@@ -284,7 +439,7 @@ $missed_count = mysqli_num_rows($missed_result);
                 <h1 class="display-6">
                     <i class="fas fa-chart-line text-primary me-2"></i>Attendance Viewer
                 </h1>
-                <p class="text-muted">Welcome, <?php echo htmlspecialchars($student['student_name']); ?> | 
+                <p class="text-muted">Welcome, <?php echo htmlspecialchars($student['student_name'] ?? 'Student'); ?> | 
                    Student ID: <?php echo htmlspecialchars($student_id); ?> | 
                    Section: <?php echo htmlspecialchars($student_section); ?></p>
             </div>
@@ -359,7 +514,7 @@ $missed_count = mysqli_num_rows($missed_result);
                         <div class="d-flex justify-content-between align-items-start">
                             <div>
                                 <h6 class="card-subtitle mb-2 text-muted">Subjects</h6>
-                                <h2 class="card-title text-info"><?php echo mysqli_num_rows($subject_details_result); ?></h2>
+                                <h2 class="card-title text-info"><?php echo $subject_details_result ? mysqli_num_rows($subject_details_result) : 0; ?></h2>
                             </div>
                             <i class="fas fa-book fa-2x text-info opacity-75"></i>
                         </div>
@@ -427,7 +582,11 @@ $missed_count = mysqli_num_rows($missed_result);
                             </tr>
                         </thead>
                         <tbody>
-                            <?php while ($missed = mysqli_fetch_assoc($missed_result)): ?>
+                            <?php 
+                            if ($missed_result) {
+                                mysqli_data_seek($missed_result, 0);
+                                while ($missed = mysqli_fetch_assoc($missed_result)): 
+                            ?>
                             <tr>
                                 <td><?php echo date('d/m/Y h:i A', strtotime($missed['start_time'])); ?></td>
                                 <td>
@@ -444,7 +603,10 @@ $missed_count = mysqli_num_rows($missed_result);
                                 </td>
                                 <td><span class="badge bg-danger">Absent</span></td>
                             </tr>
-                            <?php endwhile; ?>
+                            <?php 
+                                endwhile;
+                            }
+                            ?>
                         </tbody>
                     </table>
                 </div>
@@ -463,13 +625,17 @@ $missed_count = mysqli_num_rows($missed_result);
                             <select class="form-select" name="subject" id="subjectFilter">
                                 <option value="">All Subjects</option>
                                 <?php 
-                                mysqli_data_seek($subjects_result, 0);
-                                while ($subject = mysqli_fetch_assoc($subjects_result)): ?>
-                                    <option value="<?php echo $subject['subject_name']; ?>"
-                                        <?php echo (isset($_GET['subject']) && $_GET['subject'] == $subject['subject_name']) ? 'selected' : ''; ?>>
-                                        <?php echo htmlspecialchars($subject['subject_name']); ?>
-                                    </option>
-                                <?php endwhile; ?>
+                                if ($subjects_result) {
+                                    mysqli_data_seek($subjects_result, 0);
+                                    while ($subject = mysqli_fetch_assoc($subjects_result)): ?>
+                                        <option value="<?php echo htmlspecialchars($subject['subject_name']); ?>"
+                                            <?php echo (isset($_GET['subject']) && $_GET['subject'] == $subject['subject_name']) ? 'selected' : ''; ?>>
+                                            <?php echo htmlspecialchars($subject['subject_name']); ?>
+                                        </option>
+                                    <?php 
+                                    endwhile;
+                                }
+                                ?>
                             </select>
                         </div>
                         <div class="col-md-5">
@@ -477,13 +643,17 @@ $missed_count = mysqli_num_rows($missed_result);
                             <select class="form-select" name="month" id="monthFilter">
                                 <option value="">All Months</option>
                                 <?php 
-                                mysqli_data_seek($months_result, 0);
-                                while ($month = mysqli_fetch_assoc($months_result)): ?>
-                                    <option value="<?php echo $month['month_value']; ?>"
-                                        <?php echo (isset($_GET['month']) && $_GET['month'] == $month['month_value']) ? 'selected' : ''; ?>>
-                                        <?php echo $month['month_display']; ?>
-                                    </option>
-                                <?php endwhile; ?>
+                                if ($months_result) {
+                                    mysqli_data_seek($months_result, 0);
+                                    while ($month = mysqli_fetch_assoc($months_result)): ?>
+                                        <option value="<?php echo $month['month_value']; ?>"
+                                            <?php echo (isset($_GET['month']) && $_GET['month'] == $month['month_value']) ? 'selected' : ''; ?>>
+                                            <?php echo $month['month_display']; ?>
+                                        </option>
+                                    <?php 
+                                    endwhile;
+                                }
+                                ?>
                             </select>
                         </div>
                         <div class="col-md-2">
@@ -542,13 +712,14 @@ $missed_count = mysqli_num_rows($missed_result);
                             </thead>
                             <tbody>
                                 <?php 
-                                mysqli_data_seek($filtered_result, 0);
-                                while ($record = mysqli_fetch_assoc($filtered_result)): 
-                                    $class_type = $record['class_type'] ?? 'Normal';
-                                    $type_badge_color = 'bg-primary';
-                                    if ($class_type == 'Lab') $type_badge_color = 'bg-danger';
-                                    if ($class_type == 'Tutorial') $type_badge_color = 'bg-warning';
-                                    if ($class_type == 'Project') $type_badge_color = 'bg-success';
+                                if ($filtered_result) {
+                                    mysqli_data_seek($filtered_result, 0);
+                                    while ($record = mysqli_fetch_assoc($filtered_result)): 
+                                        $class_type = $record['class_type'] ?? 'Normal';
+                                        $type_badge_color = 'bg-primary';
+                                        if ($class_type == 'Lab') $type_badge_color = 'bg-danger';
+                                        if ($class_type == 'Tutorial') $type_badge_color = 'bg-warning';
+                                        if ($class_type == 'Project') $type_badge_color = 'bg-success';
                                 ?>
                                 <tr>
                                     <td><?php echo date('d/m/Y', strtotime($record['marked_at'])); ?></td>
@@ -573,7 +744,10 @@ $missed_count = mysqli_num_rows($missed_result);
                                     <td><span class="badge bg-success">Present</span></td>
                                     <td><?php echo date('h:i A', strtotime($record['marked_at'])); ?></td>
                                 </tr>
-                                <?php endwhile; ?>
+                                <?php 
+                                    endwhile;
+                                }
+                                ?>
                             </tbody>
                         </table>
                     </div>
@@ -590,7 +764,7 @@ $missed_count = mysqli_num_rows($missed_result);
         </div>
 
         <!-- Subject-wise Attendance Details -->
-        <?php if (mysqli_num_rows($subject_details_result) > 0): ?>
+        <?php if ($subject_details_result && mysqli_num_rows($subject_details_result) > 0): ?>
         <div class="row mt-4">
             <div class="col-md-12">
                 <div class="card">
@@ -813,6 +987,11 @@ $missed_count = mysqli_num_rows($missed_result);
     <?php endif; ?>
     </script>
     <?php endif; ?>
-    <?php include 'footer.php'; ?>
 </body>
 </html>
+<?php
+// Clean up and flush output
+if (ob_get_level() > 0) {
+    ob_end_flush();
+}
+?>
