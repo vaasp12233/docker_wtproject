@@ -79,28 +79,31 @@ if ($student_stmt) {
     die("Database error");
 }
 
-// ==================== FIX 1: Get TOTAL classes for student's section ====================
-$total_classes_for_section = 0;
+// ==================== FIXED: Get TOTAL classes for student ====================
+$total_classes_for_student = 0;
 if ($student_section) {
     $total_sessions_query = "SELECT COUNT(*) as total_sessions 
                              FROM sessions 
-                             WHERE section_targeted = ?";
+                             WHERE section_targeted = ? 
+                             AND start_time <= NOW()";
     $total_sessions_stmt = mysqli_prepare($conn, $total_sessions_query);
     if ($total_sessions_stmt) {
         mysqli_stmt_bind_param($total_sessions_stmt, "s", $student_section);
         mysqli_stmt_execute($total_sessions_stmt);
         $total_sessions_result = mysqli_stmt_get_result($total_sessions_stmt);
         $total_sessions_data = mysqli_fetch_assoc($total_sessions_result);
-        $total_classes_for_section = $total_sessions_data['total_sessions'] ?: 0;
+        $total_classes_for_student = $total_sessions_data['total_sessions'] ?: 0;
         mysqli_stmt_close($total_sessions_stmt);
     }
 }
 
-// ==================== FIX 2: Get attended classes ====================
+// ==================== FIXED: Get attended classes (only for sessions that have already happened) ====================
 $attended_count = 0;
-$attended_query = "SELECT COUNT(*) as attended_count 
-                   FROM attendance_records 
-                   WHERE student_id = ?";
+$attended_query = "SELECT COUNT(DISTINCT ar.session_id) as attended_count 
+                   FROM attendance_records ar
+                   JOIN sessions s ON ar.session_id = s.session_id
+                   WHERE ar.student_id = ?
+                   AND s.start_time <= NOW()";
 $attended_stmt = mysqli_prepare($conn, $attended_query);
 if ($attended_stmt) {
     mysqli_stmt_bind_param($attended_stmt, "s", $student_id);
@@ -112,8 +115,8 @@ if ($attended_stmt) {
 }
 
 // ==================== Calculate attendance percentage ====================
-$attendance_percentage = ($total_classes_for_section > 0) 
-    ? round(($attended_count / $total_classes_for_section) * 100, 2) 
+$attendance_percentage = ($total_classes_for_student > 0) 
+    ? round(($attended_count / $total_classes_for_student) * 100, 2) 
     : 0;
 
 // ==================== Query for detailed subject-wise statistics ====================
@@ -123,16 +126,17 @@ if ($student_section) {
         s.subject_id,
         s.subject_code,
         s.subject_name,
-        COUNT(ar.record_id) as classes_attended,
-        COUNT(ses.session_id) as total_sessions_for_subject,
+        COUNT(DISTINCT CASE WHEN ar.record_id IS NOT NULL THEN ses.session_id END) as classes_attended,
+        COUNT(DISTINCT ses.session_id) as total_sessions_for_subject,
         GROUP_CONCAT(DISTINCT f.faculty_name ORDER BY f.faculty_name SEPARATOR ', ') as faculties,
         GROUP_CONCAT(DISTINCT ses.class_type ORDER BY ses.class_type SEPARATOR ', ') as class_types
     FROM subjects s
-    LEFT JOIN sessions ses ON s.subject_id = ses.subject_id AND ses.section_targeted = ?
+    LEFT JOIN sessions ses ON s.subject_id = ses.subject_id AND ses.section_targeted = ? AND ses.start_time <= NOW()
     LEFT JOIN attendance_records ar ON ses.session_id = ar.session_id AND ar.student_id = ?
     LEFT JOIN faculty f ON ses.faculty_id = f.faculty_id
     WHERE s.subject_id IN (SELECT DISTINCT subject_id FROM sessions WHERE section_targeted = ?)
     GROUP BY s.subject_id, s.subject_code, s.subject_name
+    HAVING total_sessions_for_subject > 0
     ORDER BY s.subject_name";
     
     $subject_details_stmt = mysqli_prepare($conn, $subject_details_query);
@@ -159,7 +163,7 @@ $records_query = "SELECT
     ses.class_type,
     'Present' as status
 FROM attendance_records ar
-LEFT JOIN sessions ses ON ar.session_id = ses.session_id
+LEFT JOIN sessions ses ON ar.session_id = ses.session_id AND ses.start_time <= NOW()
 LEFT JOIN subjects s ON ses.subject_id = s.subject_id
 LEFT JOIN faculty f ON ses.faculty_id = f.faculty_id
 WHERE ar.student_id = ?
@@ -182,11 +186,12 @@ $month_attended_counts = [];
 if ($student_section) {
     $monthly_query = "SELECT 
         DATE_FORMAT(ses.start_time, '%Y-%m') as month,
-        COUNT(ses.session_id) as total_sessions,
-        COUNT(ar.record_id) as attended_sessions
+        COUNT(DISTINCT ses.session_id) as total_sessions,
+        COUNT(DISTINCT ar.record_id) as attended_sessions
     FROM sessions ses
     LEFT JOIN attendance_records ar ON ses.session_id = ar.session_id AND ar.student_id = ?
     WHERE ses.section_targeted = ?
+    AND ses.start_time <= NOW()
     GROUP BY DATE_FORMAT(ses.start_time, '%Y-%m')
     ORDER BY month DESC
     LIMIT 6";
@@ -220,11 +225,11 @@ $subject_attendance_percentages = [];
 if ($student_section) {
     $subject_query = "SELECT 
         s.subject_name,
-        COUNT(ar.record_id) as attended_count,
-        COUNT(ses.session_id) as total_count,
-        ROUND((COUNT(ar.record_id) * 100.0 / NULLIF(COUNT(ses.session_id), 0)), 2) as attendance_percentage
+        COUNT(DISTINCT CASE WHEN ar.record_id IS NOT NULL THEN ses.session_id END) as attended_count,
+        COUNT(DISTINCT ses.session_id) as total_count,
+        ROUND((COUNT(DISTINCT CASE WHEN ar.record_id IS NOT NULL THEN ses.session_id END) * 100.0 / NULLIF(COUNT(DISTINCT ses.session_id), 0)), 2) as attendance_percentage
     FROM subjects s
-    LEFT JOIN sessions ses ON s.subject_id = ses.subject_id AND ses.section_targeted = ?
+    LEFT JOIN sessions ses ON s.subject_id = ses.subject_id AND ses.section_targeted = ? AND ses.start_time <= NOW()
     LEFT JOIN attendance_records ar ON ses.session_id = ar.session_id AND ar.student_id = ?
     WHERE s.subject_id IN (SELECT DISTINCT subject_id FROM sessions WHERE section_targeted = ?)
     GROUP BY s.subject_id, s.subject_name
@@ -280,7 +285,7 @@ $filtered_query = "SELECT
     ses.class_type,
     'Present' as status
 FROM attendance_records ar
-LEFT JOIN sessions ses ON ar.session_id = ses.session_id
+LEFT JOIN sessions ses ON ar.session_id = ses.session_id AND ses.start_time <= NOW()
 LEFT JOIN subjects s ON ses.subject_id = s.subject_id
 LEFT JOIN faculty f ON ses.faculty_id = f.faculty_id
 $where_clause
@@ -302,6 +307,7 @@ if ($student_section) {
                     DATE_FORMAT(ses.start_time, '%M %Y') as month_display
                     FROM sessions ses
                     WHERE ses.section_targeted = ?
+                    AND ses.start_time <= NOW()
                     ORDER BY month_value DESC";
     $months_stmt = mysqli_prepare($conn, $months_query);
     if ($months_stmt) {
@@ -342,20 +348,25 @@ if ($student_section) {
     FROM sessions ses
     LEFT JOIN subjects s ON ses.subject_id = s.subject_id
     LEFT JOIN faculty f ON ses.faculty_id = f.faculty_id
-    LEFT JOIN attendance_records ar ON ses.session_id = ar.session_id AND ar.student_id = ?
     WHERE ses.section_targeted = ? 
-    AND ar.record_id IS NULL
+    AND ses.start_time <= NOW()
+    AND ses.session_id NOT IN (
+        SELECT session_id FROM attendance_records WHERE student_id = ?
+    )
     ORDER BY ses.start_time DESC";
     
     $missed_stmt = mysqli_prepare($conn, $missed_sessions_query);
     if ($missed_stmt) {
-        mysqli_stmt_bind_param($missed_stmt, "ss", $student_id, $student_section);
+        mysqli_stmt_bind_param($missed_stmt, "ss", $student_section, $student_id);
         mysqli_stmt_execute($missed_stmt);
         $missed_result = mysqli_stmt_get_result($missed_stmt);
         $missed_count = mysqli_num_rows($missed_result);
         mysqli_stmt_close($missed_stmt);
     }
 }
+
+// ==================== Include Header ====================
+include 'header.php';
 ?>
 
 <!DOCTYPE html>
@@ -430,8 +441,8 @@ if ($student_section) {
     </style>
 </head>
 <body>
-    <!-- Header -->
-   
+    <!-- Header is now included from header.php -->
+    
     <div class="container">
         <!-- Page Header -->
         <div class="row mb-4">
@@ -447,6 +458,9 @@ if ($student_section) {
                 <button class="btn btn-outline-primary" onclick="window.print()">
                     <i class="fas fa-print me-1"></i>Print Report
                 </button>
+                <a href="student_dashboard.php" class="btn btn-secondary ms-2">
+                    <i class="fas fa-arrow-left me-1"></i>Back to Dashboard
+                </a>
             </div>
         </div>
 
@@ -458,11 +472,11 @@ if ($student_section) {
                         <div class="d-flex justify-content-between align-items-start">
                             <div>
                                 <h6 class="card-subtitle mb-2 text-muted">Total Classes</h6>
-                                <h2 class="card-title text-primary"><?php echo $total_classes_for_section; ?></h2>
+                                <h2 class="card-title text-primary"><?php echo $total_classes_for_student; ?></h2>
                             </div>
                             <i class="fas fa-calendar-alt fa-2x text-primary opacity-75"></i>
                         </div>
-                        <p class="card-text small">For Section <?php echo htmlspecialchars($student_section); ?></p>
+                        <p class="card-text small">Classes in Section <?php echo htmlspecialchars($student_section); ?></p>
                     </div>
                 </div>
             </div>
@@ -525,7 +539,7 @@ if ($student_section) {
         </div>
 
         <!-- Charts Section - Only show if we have data -->
-        <?php if ($total_classes_for_section > 0): ?>
+        <?php if ($total_classes_for_student > 0): ?>
         <div class="row mb-4">
             <!-- Monthly Trend Chart -->
             <?php if (count($monthly_data) > 0): ?>
@@ -615,7 +629,7 @@ if ($student_section) {
         <?php endif; ?>
 
         <!-- Filters and Search -->
-        <?php if ($total_classes_for_section > 0): ?>
+        <?php if ($total_classes_for_student > 0): ?>
         <div class="card mb-4">
             <div class="card-body">
                 <form method="GET" action="">
@@ -687,7 +701,7 @@ if ($student_section) {
                     <?php endif; ?>
                 </h5>
                 <div>
-                    <span class="badge bg-primary">Attended: <?php echo $attended_count; ?> of <?php echo $total_classes_for_section; ?></span>
+                    <span class="badge bg-primary">Attended: <?php echo $attended_count; ?> of <?php echo $total_classes_for_student; ?></span>
                 </div>
             </div>
             <div class="card-body">
@@ -696,6 +710,9 @@ if ($student_section) {
                         <i class="fas fa-clipboard-list fa-4x text-muted mb-3"></i>
                         <h4 class="text-muted">No Attendance Records Found</h4>
                         <p class="text-muted">You haven't attended any classes yet.</p>
+                        <a href="student_dashboard.php" class="btn btn-primary">
+                            <i class="fas fa-home me-2"></i>Back to Dashboard
+                        </a>
                     </div>
                 <?php else: ?>
                     <div class="table-responsive">
@@ -720,6 +737,16 @@ if ($student_section) {
                                         if ($class_type == 'Lab') $type_badge_color = 'bg-danger';
                                         if ($class_type == 'Tutorial') $type_badge_color = 'bg-warning';
                                         if ($class_type == 'Project') $type_badge_color = 'bg-success';
+                                        
+                                        // Calculate if late (more than 15 minutes after start)
+                                        $is_late = false;
+                                        if (!empty($record['start_time']) && !empty($record['marked_at'])) {
+                                            $start_time = strtotime($record['start_time']);
+                                            $marked_time = strtotime($record['marked_at']);
+                                            if (($marked_time - $start_time) > 900) { // 15 minutes = 900 seconds
+                                                $is_late = true;
+                                            }
+                                        }
                                 ?>
                                 <tr>
                                     <td><?php echo date('d/m/Y', strtotime($record['marked_at'])); ?></td>
@@ -741,7 +768,12 @@ if ($student_section) {
                                             <span class="badge <?php echo $type_badge_color; ?> class-type-badge"><?php echo $class_type; ?></span>
                                         <?php endif; ?>
                                     </td>
-                                    <td><span class="badge bg-success">Present</span></td>
+                                    <td>
+                                        <span class="badge bg-success">Present</span>
+                                        <?php if ($is_late): ?>
+                                            <span class="badge bg-warning ms-1">Late</span>
+                                        <?php endif; ?>
+                                    </td>
                                     <td><?php echo date('h:i A', strtotime($record['marked_at'])); ?></td>
                                 </tr>
                                 <?php 
@@ -887,12 +919,13 @@ if ($student_section) {
     </div>
 
     <!-- Footer -->
-  
+    <?php include 'footer.php'; ?>
+    
     <!-- Bootstrap JS -->
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     
     <!-- Charts JavaScript -->
-    <?php if ($total_classes_for_section > 0): ?>
+    <?php if ($total_classes_for_student > 0): ?>
     <script>
     // Monthly Trend Chart - Show total vs attended
     <?php if (count($monthly_data) > 0): ?>
