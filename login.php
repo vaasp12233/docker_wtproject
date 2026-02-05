@@ -2,6 +2,11 @@
 session_start();
 require_once 'config.php'; 
 
+// Check if database connection is available
+if (!$conn) {
+    $db_error = "⚠️ Database connection failed. Please try again later or contact administrator.";
+}
+
 // Redirect if already logged in
 if (isset($_SESSION['logged_in'])) {
     if ($_SESSION['role'] == 'faculty') {
@@ -15,88 +20,95 @@ if (isset($_SESSION['logged_in'])) {
 // Handle Traditional Login
 $error = '';
 if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['login'])) {
-    $email = $conn->real_escape_string($_POST['email']);
-    $password = $conn->real_escape_string($_POST['password']);
-    $role = $conn->real_escape_string($_POST['role']);
     
-    if (empty($email) || empty($password)) {
-        $error = "Please enter both email and password.";
+    // Check if database is connected
+    if (!$conn) {
+        $error = "Database connection failed. Please try again later.";
     } else {
-        // Get the part before @ in email as expected password
-        $email_parts = explode('@', $email);
-        if (count($email_parts) < 2) {
-            $error = "Invalid email format.";
+        // Use mysqli_real_escape_string instead of $conn->real_escape_string
+        $email = mysqli_real_escape_string($conn, $_POST['email']);
+        $password = $_POST['password']; // Don't escape password, we'll verify it separately
+        $role = mysqli_real_escape_string($conn, $_POST['role']);
+        
+        if (empty($email) || empty($password)) {
+            $error = "Please enter both email and password.";
         } else {
-            $expected_password = strtolower($email_parts[0]);
-            
-            if ($role == 'faculty') {
-                // Faculty login - check if email exists
-                $sql = "SELECT faculty_id, faculty_name, faculty_email, faculty_department, password 
-                        FROM faculty WHERE faculty_email = '$email'";
-                $result = mysqli_query($conn, $sql);
+            // Get the part before @ in email as expected password
+            $email_parts = explode('@', $email);
+            if (count($email_parts) < 2) {
+                $error = "Invalid email format.";
+            } else {
+                $expected_password = strtolower($email_parts[0]);
                 
-                if (mysqli_num_rows($result) > 0) {
-                    $user = mysqli_fetch_assoc($result);
+                if ($role == 'faculty') {
+                    // Faculty login - check if email exists
+                    $sql = "SELECT faculty_id, faculty_name, faculty_email, faculty_department, password 
+                            FROM faculty WHERE faculty_email = '$email'";
+                    $result = mysqli_query($conn, $sql);
                     
-                    // Check password (custom or default)
-                    $login_success = false;
-                    
-                    if (!empty($user['password'])) {
-                        // Check hashed custom password
-                        $login_success = password_verify($password, $user['password']);
-                    } else {
-                        // Check default password (part before @ in email)
-                        $login_success = (strtolower($password) === $expected_password);
-                    }
-                    
-                    if ($login_success) {
-                        $_SESSION['faculty_id'] = $user['faculty_id'];
-                        $_SESSION['name'] = $user['faculty_name'];
-                        $_SESSION['email'] = $user['faculty_email'];
-                        $_SESSION['department'] = $user['faculty_department'];
-                        $_SESSION['role'] = 'faculty';
-                        $_SESSION['logged_in'] = true;
+                    if ($result && mysqli_num_rows($result) > 0) {
+                        $user = mysqli_fetch_assoc($result);
                         
-                        // Set flag if using default password
-                        if (empty($user['password'])) {
-                            $_SESSION['default_password'] = true;
+                        // Check password (custom or default)
+                        $login_success = false;
+                        
+                        if (!empty($user['password'])) {
+                            // Check hashed custom password
+                            $login_success = password_verify($password, $user['password']);
+                        } else {
+                            // Check default password (part before @ in email)
+                            $login_success = (strtolower($password) === $expected_password);
                         }
                         
-                        header('Location: faculty_dashboard.php');
-                        exit;
+                        if ($login_success) {
+                            $_SESSION['faculty_id'] = $user['faculty_id'];
+                            $_SESSION['name'] = $user['faculty_name'];
+                            $_SESSION['email'] = $user['faculty_email'];
+                            $_SESSION['department'] = $user['faculty_department'];
+                            $_SESSION['role'] = 'faculty';
+                            $_SESSION['logged_in'] = true;
+                            
+                            // Set flag if using default password
+                            if (empty($user['password'])) {
+                                $_SESSION['default_password'] = true;
+                            }
+                            
+                            header('Location: faculty_dashboard.php');
+                            exit;
+                        } else {
+                            $error = "Invalid password. " . (empty($user['password']) ? 
+                                    "Default password is the part before @ in your email." : 
+                                    "Please enter your custom password.");
+                        }
                     } else {
-                        $error = "Invalid password. " . (empty($user['password']) ? 
-                                "Default password is the part before @ in your email." : 
-                                "Please enter your custom password.");
+                        $error = "Email not found in faculty database.";
                     }
                 } else {
-                    $error = "Email not found in faculty database.";
-                }
-            } else {
-                // Student login - check if email exists
-                $sql = "SELECT student_id, student_name, student_email, section, student_department 
-                        FROM students WHERE student_email = '$email'";
-                $result = mysqli_query($conn, $sql);
-                
-                if (mysqli_num_rows($result) > 0) {
-                    $user = mysqli_fetch_assoc($result);
+                    // Student login - check if email exists
+                    $sql = "SELECT student_id, student_name, student_email, section, student_department 
+                            FROM students WHERE student_email = '$email'";
+                    $result = mysqli_query($conn, $sql);
                     
-                    // Check if password matches the part before @ in email
-                    if (strtolower($password) === $expected_password) {
-                        $_SESSION['student_id'] = $user['student_id'];
-                        $_SESSION['name'] = $user['student_name'];
-                        $_SESSION['email'] = $user['student_email'];
-                        $_SESSION['section'] = $user['section'];
-                        $_SESSION['department'] = $user['student_department'];
-                        $_SESSION['role'] = 'student';
-                        $_SESSION['logged_in'] = true;
-                        header('Location: student_dashboard.php');
-                        exit;
+                    if ($result && mysqli_num_rows($result) > 0) {
+                        $user = mysqli_fetch_assoc($result);
+                        
+                        // Check if password matches the part before @ in email
+                        if (strtolower($password) === $expected_password) {
+                            $_SESSION['student_id'] = $user['student_id'];
+                            $_SESSION['name'] = $user['student_name'];
+                            $_SESSION['email'] = $user['student_email'];
+                            $_SESSION['section'] = $user['section'];
+                            $_SESSION['department'] = $user['student_department'];
+                            $_SESSION['role'] = 'student';
+                            $_SESSION['logged_in'] = true;
+                            header('Location: student_dashboard.php');
+                            exit;
+                        } else {
+                            $error = "Invalid password. Password should be the part before @ in your email.";
+                        }
                     } else {
-                        $error = "Invalid password. Password should be the part before @ in your email.";
+                        $error = "Email not found in student database.";
                     }
-                } else {
-                    $error = "Email not found in student database.";
                 }
             }
         }
@@ -188,6 +200,16 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['login'])) {
             text-align: center;
             margin-top: 15px;
         }
+        
+        .db-error {
+            background: #ff6b6b;
+            color: white;
+            padding: 10px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            text-align: center;
+            font-weight: 500;
+        }
     </style>
 </head>
 <body>
@@ -198,10 +220,17 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['login'])) {
             <p class="text-muted">Department of Computer Science</p>
         </div>
         
+        <?php if (isset($db_error)): ?>
+            <div class="db-error">
+                <i class="fas fa-database me-2"></i>
+                <?php echo htmlspecialchars($db_error); ?>
+            </div>
+        <?php endif; ?>
+        
         <?php if ($error): ?>
             <div class="alert alert-danger">
                 <i class="fas fa-exclamation-triangle me-2"></i>
-                <?php echo $error; ?>
+                <?php echo htmlspecialchars($error); ?>
             </div>
         <?php endif; ?>
         
@@ -235,8 +264,9 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['login'])) {
                 </small>
             </div>
             
-            <button type="submit" name="login" class="btn-login">
-                <i class="fas fa-sign-in-alt me-2"></i> Login to System
+            <button type="submit" name="login" class="btn-login" <?php if (!$conn) echo 'disabled'; ?>>
+                <i class="fas fa-sign-in-alt me-2"></i> 
+                <?php echo $conn ? 'Login to System' : 'System Unavailable'; ?>
             </button>
             
             <div class="forgot-password">
@@ -247,7 +277,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['login'])) {
         </form>
     </div>
     
-    <!-- SIMPLE TRANSLATE BUTTON - WORKS EVERY TIME -->
+    <!-- SIMPLE TRANSLATE BUTTON -->
     <button onclick="translatePage()" id="translateBtn" 
             style="position: fixed; bottom: 25px; right: 25px; z-index: 10000;
                    width: 60px; height: 60px; background: linear-gradient(135deg, #1a73e8, #0d62d9);
@@ -284,190 +314,64 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['login'])) {
             }
         }
         
-        // SIMPLE WORKING TRANSLATE FUNCTION
         function translatePage() {
-            // Try Google Translate first
-            if (window.google && google.translate && google.translate.TranslateElement) {
-                // If Google Translate is already loaded, use it
-                var translateDiv = document.getElementById('google_translate_element');
-                if (!translateDiv) {
-                    translateDiv = document.createElement('div');
-                    translateDiv.id = 'google_translate_element';
-                    translateDiv.style.position = 'fixed';
-                    translateDiv.style.bottom = '20px';
-                    translateDiv.style.right = '20px';
-                    translateDiv.style.zIndex = '9999';
-                    translateDiv.style.display = 'none';
-                    document.body.appendChild(translateDiv);
-                }
-                
-                // Initialize Google Translate
-                new google.translate.TranslateElement({
-                    pageLanguage: 'en',
-                    includedLanguages: 'en,hi,te',
-                    layout: google.translate.TranslateElement.InlineLayout.SIMPLE,
-                    autoDisplay: false
-                }, 'google_translate_element');
-                
-                // Trigger the dropdown
-                setTimeout(function() {
-                    var googleBtn = document.querySelector('.goog-te-menu-value');
-                    if (googleBtn) {
-                        googleBtn.click();
-                    }
-                }, 100);
-                
-            } else {
-                // Load Google Translate if not loaded
-                var script = document.createElement('script');
-                script.src = 'https://translate.google.com/translate_a/element.js?cb=initGoogleTranslate';
-                document.head.appendChild(script);
-                
-                // Define the callback
-                window.initGoogleTranslate = function() {
-                    var translateDiv = document.getElementById('google_translate_element');
-                    if (!translateDiv) {
-                        translateDiv = document.createElement('div');
-                        translateDiv.id = 'google_translate_element';
-                        translateDiv.style.position = 'fixed';
-                        translateDiv.style.bottom = '20px';
-                        translateDiv.style.right = '20px';
-                        translateDiv.style.zIndex = '9999';
-                        translateDiv.style.display = 'none';
-                        document.body.appendChild(translateDiv);
-                    }
-                    
+            // Simple translate function
+            if (typeof google !== 'undefined' && google.translate) {
+                try {
                     new google.translate.TranslateElement({
                         pageLanguage: 'en',
                         includedLanguages: 'en,hi,te',
-                        layout: google.translate.TranslateElement.InlineLayout.SIMPLE,
-                        autoDisplay: false
+                        layout: google.translate.TranslateElement.InlineLayout.SIMPLE
                     }, 'google_translate_element');
                     
-                    // Trigger the dropdown
-                    setTimeout(function() {
-                        var googleBtn = document.querySelector('.goog-te-menu-value');
-                        if (googleBtn) {
-                            googleBtn.click();
-                        }
-                    }, 500);
+                    // Create element if not exists
+                    if (!document.getElementById('google_translate_element')) {
+                        const div = document.createElement('div');
+                        div.id = 'google_translate_element';
+                        div.style.display = 'none';
+                        document.body.appendChild(div);
+                    }
+                    
+                    // Trigger translation UI
+                    setTimeout(() => {
+                        const translateButton = document.querySelector('.goog-te-menu-value');
+                        if (translateButton) translateButton.click();
+                    }, 100);
+                } catch (e) {
+                    console.log('Translate error:', e);
+                    alert('Translation service unavailable');
+                }
+            } else {
+                // Load Google Translate
+                const script = document.createElement('script');
+                script.src = 'https://translate.google.com/translate_a/element.js?cb=googleTranslateElementInit';
+                document.head.appendChild(script);
+                
+                window.googleTranslateElementInit = function() {
+                    new google.translate.TranslateElement({
+                        pageLanguage: 'en',
+                        includedLanguages: 'en,hi,te',
+                        layout: google.translate.TranslateElement.InlineLayout.SIMPLE
+                    }, 'google_translate_element');
                 };
             }
-            
-            // Button animation
-            const btn = document.getElementById('translateBtn');
-            btn.style.transform = 'scale(0.9)';
-            setTimeout(() => {
-                btn.style.transform = 'scale(1)';
-            }, 150);
         }
         
         // Button hover effects
         const translateBtn = document.getElementById('translateBtn');
-        translateBtn.addEventListener('mouseenter', function() {
-            this.style.transform = 'scale(1.1)';
-            this.style.boxShadow = '0 6px 20px rgba(26, 115, 232, 0.5)';
-            this.style.background = 'linear-gradient(135deg, #0d62d9, #0a56c4)';
-        });
-        
-        translateBtn.addEventListener('mouseleave', function() {
-            this.style.transform = 'scale(1)';
-            this.style.boxShadow = '0 4px 15px rgba(26, 115, 232, 0.4)';
-            this.style.background = 'linear-gradient(135deg, #1a73e8, #0d62d9)';
-        });
-        
-        // Add tooltip
-        const tooltip = document.createElement('div');
-        tooltip.textContent = 'Translate';
-        tooltip.style.cssText = `
-            position: absolute;
-            bottom: 70px;
-            right: 15px;
-            background: #333;
-            color: white;
-            padding: 6px 12px;
-            border-radius: 6px;
-            font-size: 12px;
-            font-weight: 500;
-            white-space: nowrap;
-            opacity: 0;
-            transform: translateY(10px);
-            transition: all 0.3s ease;
-            pointer-events: none;
-            z-index: 10001;
-        `;
-        translateBtn.appendChild(tooltip);
-        
-        translateBtn.addEventListener('mouseenter', function() {
-            tooltip.style.opacity = '1';
-            tooltip.style.transform = 'translateY(0)';
-        });
-        
-        translateBtn.addEventListener('mouseleave', function() {
-            tooltip.style.opacity = '0';
-            tooltip.style.transform = 'translateY(10px)';
-        });
+        if (translateBtn) {
+            translateBtn.addEventListener('mouseenter', function() {
+                this.style.transform = 'scale(1.1)';
+                this.style.boxShadow = '0 6px 20px rgba(26, 115, 232, 0.5)';
+                this.style.background = 'linear-gradient(135deg, #0d62d9, #0a56c4)';
+            });
+            
+            translateBtn.addEventListener('mouseleave', function() {
+                this.style.transform = 'scale(1)';
+                this.style.boxShadow = '0 4px 15px rgba(26, 115, 232, 0.4)';
+                this.style.background = 'linear-gradient(135deg, #1a73e8, #0d62d9)';
+            });
+        }
     </script>
-    
-    <style>
-        /* Hide Google Translate elements */
-        .goog-te-banner-frame {
-            display: none !important;
-        }
-        
-        .skiptranslate {
-            display: none !important;
-        }
-        
-        body {
-            top: 0 !important;
-            position: static !important;
-        }
-        
-        /* Style Google Translate dropdown */
-        .goog-te-menu-frame {
-            border-radius: 12px !important;
-            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.15) !important;
-            border: 1px solid #e0e0e0 !important;
-            max-width: 220px !important;
-            bottom: 95px !important;
-            top: auto !important;
-            right: 20px !important;
-            left: auto !important;
-        }
-        
-        .goog-te-menu2 {
-            max-width: 220px !important;
-            border-radius: 12px !important;
-            overflow: hidden !important;
-            padding: 8px 0 !important;
-        }
-        
-        .goog-te-menu2-item {
-            padding: 12px 20px !important;
-            font-size: 14px !important;
-            color: #333 !important;
-        }
-        
-        .goog-te-menu2-item:hover {
-            background-color: #f5f8ff !important;
-            color: #1a73e8 !important;
-        }
-        
-        /* Hide Google logo */
-        .goog-logo-link {
-            display: none !important;
-        }
-        
-        /* Tooltip arrow */
-        #translateBtn div:last-child:after {
-            content: '';
-            position: absolute;
-            top: 100%;
-            right: 20px;
-            border: 5px solid transparent;
-            border-top-color: #333;
-        }
-    </style>
 </body>
 </html>
