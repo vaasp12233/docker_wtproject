@@ -1,4 +1,3 @@
-
 <?php
 // timetable.php - Student Timetable View
 
