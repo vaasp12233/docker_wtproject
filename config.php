@@ -1,35 +1,53 @@
-// ... existing error_reporting and getenv() setup ...
+<?php
+// config.php - FIXED VERSION for Aiven MySQL
+// NO OUTPUT VERSION - Prevents header errors
 
-$host = getenv('DB_HOST') ?: 'localhost';
-$user = getenv('DB_USER') ?: 'root';
-$pass = getenv('DB_PASS') ?: '';
-$name = getenv('DB_NAME') ?: 'cse_attendance';
-$port = getenv('DB_PORT') ?: 3306;
+// Turn off error display but log errors
+error_reporting(E_ALL);
+ini_set('display_errors', 0);
+ini_set('log_errors', 1);
+
+// Get environment variables from Render with fallback
+$host = 'mysql-3a56a39e-vaseemlaptop-5078.e.aivencloud.com';
+$user = 'avnadmin';
+$pass = 'AVNS_rMHOMFGZyD5kLjgzXlt';
+$name = 'defaultdb';
+$port = 26600;
 
 // Set timezone
 date_default_timezone_set('Asia/Kolkata');
 
-// Connection function to handle reconnection attempts AND SSL
-function connectDatabaseWithSSL($host, $user, $pass, $name, $port) {
+// Simple connection function for Aiven
+function connectToDatabase() {
+    global $host, $user, $pass, $name, $port;
+    
     $maxAttempts = 3;
     $attempt = 1;
     
     while ($attempt <= $maxAttempts) {
+        // Method 1: Try with mysqli_connect (simple)
+        $conn = @mysqli_connect($host, $user, $pass, $name, $port);
+        
+        if ($conn) {
+            return $conn;
+        }
+        
+        // Method 2: Try with SSL for Aiven
         $conn = mysqli_init();
         
-        // --- AIVEN SSL REQUIREMENT ---
-        // This sets the SSL mode necessary for Aiven to accept the connection
-        mysqli_ssl_set($conn, NULL, NULL, NULL, NULL, NULL);
-
-        // Use real_connect which supports the SSL handshake
-        $success = @mysqli_real_connect($conn, $host, $user, $pass, $name, $port);
+        // Set SSL options
+        mysqli_options($conn, MYSQLI_OPT_SSL_VERIFY_SERVER_CERT, false);
+        mysqli_options($conn, MYSQLI_OPT_CONNECT_TIMEOUT, 10);
         
-        if ($success) {
+        // Try SSL connection
+        mysqli_ssl_set($conn, NULL, NULL, NULL, NULL, NULL);
+        
+        if (@mysqli_real_connect($conn, $host, $user, $pass, $name, $port, NULL, MYSQLI_CLIENT_SSL)) {
             return $conn;
         }
         
         if ($attempt < $maxAttempts) {
-            error_log("Connection attempt $attempt failed. Retrying in 2 seconds...");
+            error_log("Connection attempt $attempt failed. Retrying...");
             sleep(2);
         }
         
@@ -39,13 +57,11 @@ function connectDatabaseWithSSL($host, $user, $pass, $name, $port) {
     return false;
 }
 
-// Silent database connection with retry logic
-$conn = connectDatabaseWithSSL($host, $user, $pass, $name, $port);
-
-// ... rest of your existing error logging logic below this line ...
+// Connect to database
+$conn = connectToDatabase();
 
 if (!$conn) {
-    // SILENT error handling - log but don't output
+    // SILENT error handling
     $error_msg = mysqli_connect_error() ?: 'Unknown connection error';
     error_log("Aiven MySQL Connection Failed: $error_msg | Host: $host:$port | User: $user");
     $conn = null;
@@ -56,4 +72,4 @@ if (!$conn) {
     @mysqli_query($conn, "SET sql_mode = 'NO_ENGINE_SUBSTITUTION'");
     @mysqli_query($conn, "SET SESSION wait_timeout = 300");
 }
-// NO CLOSING ?> TAG
+// NO CLOSING TAG
