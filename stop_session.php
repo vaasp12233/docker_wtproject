@@ -14,30 +14,39 @@ $session_id = isset($_GET['session_id']) ? intval($_GET['session_id']) : 0;
 if ($session_id > 0) {
     // Verify faculty owns this session using prepared statement
     $check_query = "SELECT * FROM sessions WHERE session_id = ? AND faculty_id = ? AND is_active = 1";
-    $stmt = mysqli_prepare($conn, $check_query);
-    mysqli_stmt_bind_param($stmt, "ii", $session_id, $faculty_id);
-    mysqli_stmt_execute($stmt);
-    $check_result = mysqli_stmt_get_result($stmt);
+    $check_stmt = mysqli_prepare($conn, $check_query);
     
-    if (mysqli_num_rows($check_result) > 0) {
-        // Stop the session using prepared statement
-        $update_query = "UPDATE sessions SET is_active = 0 WHERE session_id = ?";
-        $stmt = mysqli_prepare($conn, $update_query);
-        mysqli_stmt_bind_param($stmt, "i", $session_id);
+    if ($check_stmt) {
+        mysqli_stmt_bind_param($check_stmt, "ii", $session_id, $faculty_id);
+        mysqli_stmt_execute($check_stmt);
+        $check_result = mysqli_stmt_get_result($check_stmt);
         
-        if (mysqli_stmt_execute($stmt)) {
-            $_SESSION['success_message'] = "Session stopped successfully!";
+        if (mysqli_num_rows($check_result) > 0) {
+            // Close the check statement first
+            mysqli_stmt_close($check_stmt);
+            
+            // Stop the session using a NEW prepared statement
+            $update_query = "UPDATE sessions SET is_active = 0 WHERE session_id = ?";
+            $update_stmt = mysqli_prepare($conn, $update_query);
+            
+            if ($update_stmt) {
+                mysqli_stmt_bind_param($update_stmt, "i", $session_id);
+                
+                if (mysqli_stmt_execute($update_stmt)) {
+                    $_SESSION['success_message'] = "Session stopped successfully! Students can no longer mark attendance.";
+                } else {
+                    $_SESSION['error_message'] = "Failed to stop session. Please try again.";
+                }
+                mysqli_stmt_close($update_stmt);
+            } else {
+                $_SESSION['error_message'] = "Database error: Could not prepare update statement.";
+            }
         } else {
-            $_SESSION['error_message'] = "Failed to stop session. Please try again.";
+            $_SESSION['error_message'] = "Session not found, already stopped, or you don't have permission.";
+            mysqli_stmt_close($check_stmt);
         }
-        mysqli_stmt_close($stmt);
     } else {
-        $_SESSION['error_message'] = "Session not found or already stopped.";
-    }
-    
-    // Close the first prepared statement if it exists
-    if (isset($stmt) && is_object($stmt)) {
-        mysqli_stmt_close($stmt);
+        $_SESSION['error_message'] = "Database error: Could not prepare check statement.";
     }
 } else {
     $_SESSION['error_message'] = "Invalid session ID.";
