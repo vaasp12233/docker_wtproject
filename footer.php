@@ -11,15 +11,15 @@
             <div class="row">
                 <div class="col-md-6">
                     <h5>CSE Attendance System</h5>
-                    <p class="mb-0">Department of Computer Science</p>
+                    <p class="mb-0">Department of Computer Science RK Valley</p>
                     <p class="mb-0">Automated QR-based attendance management system</p>
                 </div>
                 <div class="col-md-6 text-md-end">
                     <p class="mb-0">
-                        &copy; <?php echo date('Y'); ?> CSE Department. All rights reserved.
+                        &copy; <?php echo date('Y'); ?> CSE Department RK Valley. All rights reserved.
                     </p>
                     <p class="mb-0">
-                        <i class="fas fa-envelope me-1"></i> cse-attendance@college.edu
+                        <i class="fas fa-envelope me-1"></i> cse@rguktrkv.ac.in
                     </p>
                     <!-- LIVE TIME ADDED HERE -->
                     <p class="mb-0 mt-2">
