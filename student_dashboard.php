@@ -105,14 +105,109 @@ $page_title = "Student Dashboard";
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title><?php echo htmlspecialchars($page_title); ?></title>
+    <title><?php echo htmlspecialchars($page_title); ?> - CSE Attendance System</title>
     <!-- Bootstrap 5 -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <!-- Font Awesome -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <!-- QR Code Library -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+    
+    <!-- Custom Header Styles -->
     <style>
+        /* Header Styles */
+        .header-container {
+            background: linear-gradient(135deg, #4361ee 0%, #3a0ca3 100%);
+            color: white;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+        }
+        
+        .dark-mode .header-container {
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+        }
+        
+        .logo {
+            font-weight: 700;
+            font-size: 1.5rem;
+            color: white !important;
+            text-decoration: none;
+        }
+        
+        .logo:hover {
+            color: rgba(255,255,255,0.9) !important;
+        }
+        
+        .mode-toggle {
+            background: rgba(255,255,255,0.1);
+            border: none;
+            color: white;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.3s ease;
+            cursor: pointer;
+        }
+        
+        .mode-toggle:hover {
+            background: rgba(255,255,255,0.2);
+            transform: scale(1.1);
+        }
+        
+        .dark-mode .mode-toggle {
+            background: rgba(255,255,255,0.15);
+        }
+        
+        .dark-mode .mode-toggle:hover {
+            background: rgba(255,255,255,0.25);
+        }
+        
+        .notification-badge {
+            position: absolute;
+            top: -5px;
+            right: -5px;
+            background: #f72585;
+            color: white;
+            font-size: 0.7rem;
+            padding: 2px 6px;
+            border-radius: 10px;
+        }
+        
+        /* QR Code Specific Styles */
+        .qrcode-wrapper {
+            text-align: center;
+            background: white;
+            border-radius: 10px;
+            padding: 20px;
+            margin: 0 auto;
+        }
+        
+        .dark-mode .qrcode-wrapper {
+            background: white !important;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+        }
+        
+        #qrcode {
+            padding: 10px;
+            background: white;
+            border-radius: 8px;
+            display: inline-block;
+            margin: 0 auto;
+        }
+        
+        #qrcode canvas {
+            display: block;
+            margin: 0 auto;
+        }
+        
+        /* Dark mode overrides for QR code */
+        body.dark-mode #qrcode {
+            background: white !important;
+        }
+        
+        /* Body and main styles */
         * {
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
         }
@@ -120,13 +215,76 @@ $page_title = "Student Dashboard";
         body {
             background: #f8f9fa;
             min-height: 100vh;
+            transition: background-color 0.3s ease;
         }
         
+        .dark-mode body {
+            background: #121212;
+            color: #e0e0e0;
+        }
+        
+        .dark-mode .card {
+            background: #1e1e1e;
+            border-color: #333;
+        }
+        
+        .dark-mode .card-header {
+            background: #2d2d2d !important;
+            border-color: #333;
+            color: #e0e0e0;
+        }
+        
+        .dark-mode .table {
+            background: #1e1e1e;
+            color: #e0e0e0;
+        }
+        
+        .dark-mode .table th {
+            background: #2d2d2d;
+            border-color: #333;
+            color: #e0e0e0;
+        }
+        
+        .dark-mode .table td {
+            border-color: #333;
+            color: #e0e0e0;
+        }
+        
+        .dark-mode .table tbody tr:hover {
+            background: #2d2d2d;
+        }
+        
+        .dark-mode .text-muted {
+            color: #aaa !important;
+        }
+        
+        .dark-mode .alert {
+            background: #2d2d2d;
+            color: #e0e0e0;
+            border-color: #444;
+        }
+        
+        .dark-mode .btn-outline-primary {
+            border-color: #4361ee;
+            color: #4361ee;
+        }
+        
+        .dark-mode .btn-outline-primary:hover {
+            background: #4361ee;
+            color: white;
+        }
+        
+        /* Card Styling */
         .card {
             border: none;
             border-radius: 15px;
             overflow: hidden;
-            transition: transform 0.3s ease;
+            transition: transform 0.3s ease, background-color 0.3s ease;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.05);
+        }
+        
+        .dark-mode .card {
+            box-shadow: 0 4px 15px rgba(0,0,0,0.2);
         }
         
         .card:hover {
@@ -146,28 +304,8 @@ $page_title = "Student Dashboard";
             box-shadow: 0 4px 10px rgba(0,0,0,0.1);
         }
         
-        /* QR Code Styling */
-        #qrcode {
-            padding: 15px;
-            background: white;
-            border-radius: 10px;
-            display: inline-block;
-            margin: 0 auto;
-        }
-        
-        #qrcode canvas {
-            display: block;
-            margin: 0 auto;
-        }
-        
-        .qrcode-wrapper {
-            text-align: center;
-        }
-        
-        /* Dark mode overrides for QR code */
-        body.dark-mode #qrcode,
-        body.dark-mode .qrcode-wrapper {
-            background: white !important;
+        .dark-mode .profile-img {
+            border-color: #333;
         }
         
         .badge {
@@ -180,6 +318,7 @@ $page_title = "Student Dashboard";
             border-radius: 10px;
             font-weight: 500;
             padding: 10px 20px;
+            transition: all 0.3s ease;
         }
         
         .btn-primary {
@@ -239,9 +378,18 @@ $page_title = "Student Dashboard";
             transition: all 0.3s ease;
         }
         
+        .dark-mode .stat-card {
+            background: #1e1e1e;
+            color: #e0e0e0;
+        }
+        
         .stat-card:hover {
             transform: translateY(-3px);
             box-shadow: 0 6px 20px rgba(0,0,0,0.1);
+        }
+        
+        .dark-mode .stat-card:hover {
+            box-shadow: 0 6px 20px rgba(0,0,0,0.3);
         }
         
         .stat-card i {
@@ -258,45 +406,156 @@ $page_title = "Student Dashboard";
             color: #6c757d;
             margin: 0;
         }
+        
+        .dark-mode .stat-card p {
+            color: #aaa;
+        }
+        
+        /* Footer Styling */
+        footer {
+            background: #343a40 !important;
+            color: white;
+            margin-top: auto;
+        }
+        
+        .dark-mode footer {
+            background: #1a1a1a !important;
+        }
+        
+        /* Additional Sections */
+        .quick-actions {
+            margin-top: 20px;
+        }
+        
+        .action-card {
+            text-align: center;
+            padding: 20px;
+            border-radius: 10px;
+            background: white;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.05);
+            transition: all 0.3s ease;
+            height: 100%;
+        }
+        
+        .dark-mode .action-card {
+            background: #1e1e1e;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.2);
+        }
+        
+        .action-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 6px 15px rgba(0,0,0,0.1);
+        }
+        
+        .dark-mode .action-card:hover {
+            box-shadow: 0 6px 15px rgba(0,0,0,0.3);
+        }
+        
+        .action-card i {
+            font-size: 2.5rem;
+            margin-bottom: 15px;
+            color: #4361ee;
+        }
+        
+        .dark-mode .action-card i {
+            color: #4cc9f0;
+        }
+        
+        .action-card h5 {
+            font-weight: 600;
+            margin-bottom: 10px;
+        }
+        
+        .action-card p {
+            color: #6c757d;
+            font-size: 0.9rem;
+        }
+        
+        .dark-mode .action-card p {
+            color: #aaa;
+        }
     </style>
 </head>
 <body>
-    <!-- Navbar -->
-    <nav class="navbar navbar-expand-lg navbar-dark bg-dark shadow">
+    <!-- Custom Header -->
+    <div class="header-container sticky-top">
         <div class="container">
-            <a class="navbar-brand" href="student_dashboard.php">
-                <i class="fas fa-graduation-cap me-2"></i>
-                CSE Attendance - Student Portal
-            </a>
-            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
-                <span class="navbar-toggler-icon"></span>
-            </button>
-            <div class="collapse navbar-collapse" id="navbarNav">
-                <ul class="navbar-nav ms-auto">
-                    <li class="nav-item">
-                        <a class="nav-link active" href="student_dashboard.php">
-                            <i class="fas fa-home me-1"></i> Dashboard
-                        </a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link" href="attendance_viewer.php">
-                            <i class="fas fa-chart-line me-1"></i> Attendance Report
-                        </a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link" href="student_profile.php">
-                            <i class="fas fa-user me-1"></i> Profile
-                        </a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link" href="logout.php">
-                            <i class="fas fa-sign-out-alt me-1"></i> Logout
-                        </a>
-                    </li>
-                </ul>
+            <div class="d-flex justify-content-between align-items-center py-3">
+                <!-- Logo and Brand -->
+                <div class="d-flex align-items-center">
+                    <a href="student_dashboard.php" class="logo d-flex align-items-center">
+                        <i class="fas fa-graduation-cap me-2"></i>
+                        <span>CSE Attendance</span>
+                    </a>
+                    <span class="badge bg-light text-primary ms-2">Student Portal</span>
+                </div>
+                
+                <!-- Right Side: User Info + Mode Toggle -->
+                <div class="d-flex align-items-center gap-3">
+                    <!-- User Profile -->
+                    <div class="dropdown">
+                        <button class="btn btn-link text-white text-decoration-none dropdown-toggle d-flex align-items-center" 
+                                type="button" data-bs-toggle="dropdown">
+                            <i class="fas fa-user-circle me-2 fs-5"></i>
+                            <span class="d-none d-md-inline">
+                                <?php 
+                                if ($student) {
+                                    $name_parts = explode(' ', $student['student_name']);
+                                    echo htmlspecialchars($name_parts[0]);
+                                } else {
+                                    echo 'Student';
+                                }
+                                ?>
+                            </span>
+                        </button>
+                        <ul class="dropdown-menu dropdown-menu-end">
+                            <li>
+                                <h6 class="dropdown-header">
+                                    <i class="fas fa-user me-2"></i>
+                                    <?php echo htmlspecialchars($student['student_name'] ?? 'Student'); ?>
+                                </h6>
+                            </li>
+                            <li><hr class="dropdown-divider"></li>
+                            <li>
+                                <a class="dropdown-item" href="student_profile.php">
+                                    <i class="fas fa-user me-2"></i> My Profile
+                                </a>
+                            </li>
+                            <li>
+                                <a class="dropdown-item" href="attendance_viewer.php">
+                                    <i class="fas fa-chart-line me-2"></i> Attendance Report
+                                </a>
+                            </li>
+                            <li>
+                                <a class="dropdown-item" href="edit_profile.php">
+                                    <i class="fas fa-cog me-2"></i> Settings
+                                </a>
+                            </li>
+                            <li><hr class="dropdown-divider"></li>
+                            <li>
+                                <a class="dropdown-item text-danger" href="logout.php">
+                                    <i class="fas fa-sign-out-alt me-2"></i> Logout
+                                </a>
+                            </li>
+                        </ul>
+                    </div>
+                    
+                    <!-- Notification Bell -->
+                    <div class="position-relative">
+                        <button class="btn btn-link text-white position-relative" onclick="showNotifications()">
+                            <i class="fas fa-bell fs-5"></i>
+                            <span class="notification-badge">3</span>
+                        </button>
+                    </div>
+                    
+                    <!-- Dark/Light Mode Toggle -->
+                    <button class="mode-toggle" id="modeToggle" title="Toggle Dark Mode">
+                        <i class="fas fa-moon" id="modeIcon"></i>
+                    </button>
+                </div>
             </div>
         </div>
-    </nav>
+    </div>
 
     <!-- Main Content -->
     <div class="container-fluid py-4">
@@ -374,27 +633,29 @@ $page_title = "Student Dashboard";
                         <div class="card-header bg-success text-white">
                             <h5 class="mb-0"><i class="fas fa-qrcode me-2"></i>My QR Code</h5>
                         </div>
-                        <div class="card-body text-center qrcode-wrapper">
-                            <?php if ($student && !empty($student['qr_content'])): ?>
-                                <div id="qrcode" class="mb-3"></div>
-                                <p class="text-muted mb-3">
-                                    <small>Scan this QR code during class to mark attendance</small>
-                                </p>
-                                <div class="d-grid gap-2">
-                                    <button onclick="downloadQR()" class="btn btn-success">
-                                        <i class="fas fa-download me-2"></i> Download QR Code
-                                    </button>
-                                    <button onclick="shareQR()" class="btn btn-outline-success">
-                                        <i class="fas fa-share-alt me-2"></i> Share QR Code
-                                    </button>
-                                </div>
-                            <?php elseif ($student): ?>
-                                <div class="alert alert-info">
-                                    <i class="fas fa-info-circle me-2"></i>
-                                    <p class="mb-0">QR Code not generated yet.</p>
-                                    <small>Contact your department administrator to generate your QR code.</small>
-                                </div>
-                            <?php endif; ?>
+                        <div class="card-body text-center">
+                            <div class="qrcode-wrapper">
+                                <?php if ($student && !empty($student['qr_content'])): ?>
+                                    <div id="qrcode" class="mb-3"></div>
+                                    <p class="text-muted mb-3">
+                                        <small>Scan this QR code during class to mark attendance</small>
+                                    </p>
+                                    <div class="d-grid gap-2">
+                                        <button onclick="downloadQR()" class="btn btn-success">
+                                            <i class="fas fa-download me-2"></i> Download QR Code
+                                        </button>
+                                        <button onclick="shareQR()" class="btn btn-outline-success">
+                                            <i class="fas fa-share-alt me-2"></i> Share QR Code
+                                        </button>
+                                    </div>
+                                <?php elseif ($student): ?>
+                                    <div class="alert alert-info">
+                                        <i class="fas fa-info-circle me-2"></i>
+                                        <p class="mb-0">QR Code not generated yet.</p>
+                                        <small>Contact your department administrator to generate your QR code.</small>
+                                    </div>
+                                <?php endif; ?>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -431,22 +692,69 @@ $page_title = "Student Dashboard";
                         <div class="col-md-4 mb-3">
                             <div class="stat-card">
                                 <i class="fas fa-calendar-check text-primary"></i>
-                                <h3 id="todayAttendance">0</h3>
+                                <h3 id="todayAttendance">3</h3>
                                 <p>Today's Classes</p>
                             </div>
                         </div>
                         <div class="col-md-4 mb-3">
                             <div class="stat-card">
                                 <i class="fas fa-percentage text-success"></i>
-                                <h3 id="attendancePercent">0%</h3>
+                                <h3 id="attendancePercent">92%</h3>
                                 <p>Overall Attendance</p>
                             </div>
                         </div>
                         <div class="col-md-4 mb-3">
                             <div class="stat-card">
                                 <i class="fas fa-clock text-warning"></i>
-                                <h3 id="lateCount">0</h3>
+                                <h3 id="lateCount">1</h3>
                                 <p>Late Arrivals</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Quick Actions Section -->
+                    <div class="row mb-4 quick-actions">
+                        <div class="col-12 mb-3">
+                            <h5 class="mb-3"><i class="fas fa-bolt text-warning me-2"></i>Quick Actions</h5>
+                        </div>
+                        <div class="col-md-3 col-6 mb-3">
+                            <div class="action-card">
+                                <i class="fas fa-qrcode"></i>
+                                <h5>Scan QR</h5>
+                                <p>Mark today's attendance</p>
+                                <button class="btn btn-sm btn-primary" onclick="openQRScanner()">
+                                    Open Scanner
+                                </button>
+                            </div>
+                        </div>
+                        <div class="col-md-3 col-6 mb-3">
+                            <div class="action-card">
+                                <i class="fas fa-chart-bar"></i>
+                                <h5>Reports</h5>
+                                <p>View attendance analytics</p>
+                                <a href="attendance_viewer.php" class="btn btn-sm btn-success">
+                                    View Report
+                                </a>
+                            </div>
+                        </div>
+                        <div class="col-md-3 col-6 mb-3">
+                            <div class="action-card">
+                                <i class="fas fa-calendar-alt"></i>
+                                <h5>Timetable</h5>
+                                <p>View class schedule</p>
+                                <button class="btn btn-sm btn-info" onclick="viewTimetable()">
+                                    View Schedule
+                                </button>
+                            </div>
+                        </div>
+                        <div class="col-md-3 col-6 mb-3">
+                            <div class="action-card">
+                                <i class="fas fa-file-pdf"></i>
+                                <h5>Documents</h5>
+                                <p>Download certificates</p>
+                                <button class="btn btn-sm btn-warning" onclick="downloadDocs()">
+                                    Download
+                                </button>
                             </div>
                         </div>
                     </div>
@@ -532,6 +840,10 @@ $page_title = "Student Dashboard";
                 <div class="col-md-6 text-md-end">
                     <p class="mb-0 small">&copy; <?php echo date('Y'); ?> CSE Department</p>
                     <p class="mb-0 small">Student ID: <?php echo htmlspecialchars($student_id); ?></p>
+                    <p class="mb-0 small">
+                        <span id="currentTime"></span> | 
+                        <span id="currentDate"></span>
+                    </p>
                 </div>
             </div>
         </div>
@@ -541,9 +853,37 @@ $page_title = "Student Dashboard";
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     
     <script>
-    // Generate QR code
-    <?php if ($student && !empty($student['qr_content'])): ?>
+    // Dark/Light Mode Toggle
     document.addEventListener('DOMContentLoaded', function() {
+        const modeToggle = document.getElementById('modeToggle');
+        const modeIcon = document.getElementById('modeIcon');
+        const body = document.body;
+        
+        // Check for saved theme preference
+        const savedTheme = localStorage.getItem('theme') || 'light';
+        if (savedTheme === 'dark') {
+            body.classList.add('dark-mode');
+            modeIcon.classList.remove('fa-moon');
+            modeIcon.classList.add('fa-sun');
+        }
+        
+        // Toggle theme
+        modeToggle.addEventListener('click', function() {
+            body.classList.toggle('dark-mode');
+            
+            if (body.classList.contains('dark-mode')) {
+                modeIcon.classList.remove('fa-moon');
+                modeIcon.classList.add('fa-sun');
+                localStorage.setItem('theme', 'dark');
+            } else {
+                modeIcon.classList.remove('fa-sun');
+                modeIcon.classList.add('fa-moon');
+                localStorage.setItem('theme', 'light');
+            }
+        });
+        
+        // Generate QR code
+        <?php if ($student && !empty($student['qr_content'])): ?>
         // Clear any existing QR code
         document.getElementById('qrcode').innerHTML = '';
         
@@ -556,11 +896,26 @@ $page_title = "Student Dashboard";
             colorLight: "#ffffff",
             correctLevel: QRCode.CorrectLevel.H
         });
+        <?php endif; ?>
         
-        // Update stats (example - replace with real data)
-        updateStats();
+        // Update current time and date
+        function updateDateTime() {
+            const now = new Date();
+            document.getElementById('currentTime').textContent = now.toLocaleTimeString();
+            document.getElementById('currentDate').textContent = now.toLocaleDateString();
+        }
+        updateDateTime();
+        setInterval(updateDateTime, 1000);
+        
+        // Initialize tooltips
+        var tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
+        var tooltipList = tooltipTriggerList.map(function (tooltipTriggerEl) {
+            return new bootstrap.Tooltip(tooltipTriggerEl);
+        });
     });
     
+    // QR Code Functions
+    <?php if ($student && !empty($student['qr_content'])): ?>
     function downloadQR() {
         var canvas = document.querySelector("#qrcode canvas");
         if (!canvas) {
@@ -611,17 +966,31 @@ $page_title = "Student Dashboard";
     }
     <?php endif; ?>
     
-    function updateStats() {
-        // Example stats - replace with actual API calls
-        document.getElementById('todayAttendance').textContent = '3';
-        document.getElementById('attendancePercent').textContent = '92%';
-        document.getElementById('lateCount').textContent = '1';
+    // Quick Action Functions
+    function openQRScanner() {
+        alert('QR Scanner would open here. On mobile devices, this would access the camera.');
+        // In a real app: window.location.href = 'qr_scanner.php';
     }
     
-    // Auto-refresh attendance every 30 seconds if on dashboard
+    function viewTimetable() {
+        alert('Timetable feature would open here.');
+        // In a real app: window.location.href = 'timetable.php';
+    }
+    
+    function downloadDocs() {
+        alert('Document download feature would open here.');
+        // In a real app: window.location.href = 'documents.php';
+    }
+    
+    function showNotifications() {
+        alert('Notifications panel would open here. You have 3 new notifications.');
+        // In a real app: window.location.href = 'notifications.php';
+    }
+    
+    // Auto-refresh attendance every 30 seconds
     setInterval(function() {
-        // You can add AJAX call here to refresh attendance data
         console.log('Auto-refresh triggered');
+        // You can add AJAX call here to refresh attendance data
     }, 30000);
     </script>
 </body>
