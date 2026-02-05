@@ -1,111 +1,170 @@
 <?php
-// Start session at the VERY beginning
-session_start();
+// ==================== CRITICAL FIX 1: Start output buffering ====================
+ob_start();
 
-// Then include config
-require_once 'config.php';
+// ==================== CRITICAL FIX 2: Configure session for Render ====================
+ini_set('session.save_path', '/tmp');
+ini_set('session.cookie_lifetime', 86400);
+ini_set('session.gc_maxlifetime', 86400);
 
-// Debug: Check if session started
-if (session_status() !== PHP_SESSION_ACTIVE) {
-    die('Session failed to start');
+// ==================== CRITICAL FIX 3: Start session ====================
+if (session_status() === PHP_SESSION_NONE) {
+    session_start();
 }
 
-// Redirect if already logged in
-if (isset($_SESSION['logged_in'])) {
-    if ($_SESSION['role'] == 'faculty') {
-        header('Location: faculty_dashboard.php');
-        exit;
-    } else {
-        header('Location: student_dashboard.php');
-        exit;
+// ==================== CRITICAL FIX 4: Include config WITHOUT output ====================
+// Check if config.php exists and doesn't output
+if (file_exists('config.php')) {
+    require_once 'config.php';
+} else {
+    die('Configuration file missing');
+}
+
+// ==================== FIX 5: Clean buffer before any headers ====================
+ob_end_clean();
+
+// ==================== FIX 6: Check database connection ====================
+if (!isset($conn) || !$conn) {
+    // Database connection failed, but don't die() - show error on login page
+    $GLOBALS['db_error'] = true;
+    $db_error_message = "Database connection issue. Please contact administrator.";
+} else {
+    $GLOBALS['db_error'] = false;
+}
+
+// ==================== FIX 7: Check if already logged in ====================
+// Only redirect if session has all required data
+if (isset($_SESSION['logged_in']) && $_SESSION['logged_in'] === true) {
+    if (isset($_SESSION['role'])) {
+        if ($_SESSION['role'] == 'faculty') {
+            header('Location: faculty_dashboard.php');
+            exit;
+        } elseif ($_SESSION['role'] == 'student') {
+            header('Location: student_dashboard.php');
+            exit;
+        }
     }
+    // If role not set, clear session and continue to login
+    session_destroy();
+    session_start();
 }
 
-// Handle Traditional Login
+// ==================== Handle Traditional Login ====================
 $error = '';
+$success = '';
+
 if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['login'])) {
-    $email = mysqli_real_escape_string($conn, $_POST['email']);
-    $password = mysqli_real_escape_string($conn, $_POST['password']);
-    $role = mysqli_real_escape_string($conn, $_POST['role']);
-    
-    if (empty($email) || empty($password)) {
-        $error = "Please enter both email and password.";
+    // Check if database is connected
+    if ($GLOBALS['db_error']) {
+        $error = "Database connection failed. Cannot process login.";
     } else {
-        // Get the part before @ in email as expected password
-        $email_parts = explode('@', $email);
-        if (count($email_parts) < 2) {
-            $error = "Invalid email format.";
+        $email = mysqli_real_escape_string($conn, $_POST['email']);
+        $password = mysqli_real_escape_string($conn, $_POST['password']);
+        $role = mysqli_real_escape_string($conn, $_POST['role']);
+        
+        if (empty($email) || empty($password)) {
+            $error = "Please enter both email and password.";
         } else {
-            $expected_password = strtolower($email_parts[0]);
-            
-            if ($role == 'faculty') {
-                // Faculty login - check if email exists
-                $sql = "SELECT faculty_id, faculty_name, faculty_email, faculty_department, password 
-                        FROM faculty WHERE faculty_email = '$email'";
-                $result = mysqli_query($conn, $sql);
+            // Get the part before @ in email as expected password
+            $email_parts = explode('@', $email);
+            if (count($email_parts) < 2) {
+                $error = "Invalid email format.";
+            } else {
+                $expected_password = strtolower($email_parts[0]);
                 
-                if ($result && mysqli_num_rows($result) > 0) {
-                    $user = mysqli_fetch_assoc($result);
+                if ($role == 'faculty') {
+                    // Faculty login - check if email exists
+                    $sql = "SELECT faculty_id, faculty_name, faculty_email, faculty_department, password 
+                            FROM faculty WHERE faculty_email = ?";
+                    $stmt = mysqli_prepare($conn, $sql);
+                    mysqli_stmt_bind_param($stmt, "s", $email);
+                    mysqli_stmt_execute($stmt);
+                    $result = mysqli_stmt_get_result($stmt);
                     
-                    // Check password (custom or default)
-                    $login_success = false;
-                    
-                    if (!empty($user['password'])) {
-                        // Check hashed custom password
-                        $login_success = password_verify($password, $user['password']);
-                    } else {
-                        // Check default password (part before @ in email)
-                        $login_success = (strtolower($password) === $expected_password);
-                    }
-                    
-                    if ($login_success) {
-                        $_SESSION['faculty_id'] = $user['faculty_id'];
-                        $_SESSION['name'] = $user['faculty_name'];
-                        $_SESSION['email'] = $user['faculty_email'];
-                        $_SESSION['department'] = $user['faculty_department'];
-                        $_SESSION['role'] = 'faculty';
-                        $_SESSION['logged_in'] = true;
+                    if (mysqli_num_rows($result) > 0) {
+                        $user = mysqli_fetch_assoc($result);
                         
-                        // Set flag if using default password
-                        if (empty($user['password'])) {
-                            $_SESSION['default_password'] = true;
+                        // Check password (custom or default)
+                        $login_success = false;
+                        
+                        if (!empty($user['password'])) {
+                            // Check hashed custom password
+                            $login_success = password_verify($password, $user['password']);
+                        } else {
+                            // Check default password (part before @ in email)
+                            $login_success = (strtolower($password) === $expected_password);
                         }
                         
-                        header('Location: faculty_dashboard.php');
-                        exit;
+                        if ($login_success) {
+                            // Regenerate session ID for security
+                            session_regenerate_id(true);
+                            
+                            $_SESSION['faculty_id'] = $user['faculty_id'];
+                            $_SESSION['name'] = $user['faculty_name'];
+                            $_SESSION['email'] = $user['faculty_email'];
+                            $_SESSION['department'] = $user['faculty_department'];
+                            $_SESSION['role'] = 'faculty';
+                            $_SESSION['logged_in'] = true;
+                            $_SESSION['login_time'] = time();
+                            
+                            // Set flag if using default password
+                            if (empty($user['password'])) {
+                                $_SESSION['default_password'] = true;
+                            }
+                            
+                            // Commit session data
+                            session_write_close();
+                            
+                            // Redirect with buffer clean
+                            header('Location: faculty_dashboard.php');
+                            exit;
+                        } else {
+                            $error = "Invalid password. " . (empty($user['password']) ? 
+                                    "Default password is the part before @ in your email." : 
+                                    "Please enter your custom password.");
+                        }
                     } else {
-                        $error = "Invalid password. " . (empty($user['password']) ? 
-                                "Default password is the part before @ in your email." : 
-                                "Please enter your custom password.");
+                        $error = "Email not found in faculty database.";
                     }
+                    mysqli_stmt_close($stmt);
                 } else {
-                    $error = "Email not found in faculty database.";
-                }
-            } else {
-                // Student login - check if email exists
-                $sql = "SELECT student_id, student_name, student_email, section, student_department 
-                        FROM students WHERE student_email = '$email'";
-                $result = mysqli_query($conn, $sql);
-                
-                if ($result && mysqli_num_rows($result) > 0) {
-                    $user = mysqli_fetch_assoc($result);
+                    // Student login - check if email exists
+                    $sql = "SELECT student_id, student_name, student_email, section, student_department 
+                            FROM students WHERE student_email = ?";
+                    $stmt = mysqli_prepare($conn, $sql);
+                    mysqli_stmt_bind_param($stmt, "s", $email);
+                    mysqli_stmt_execute($stmt);
+                    $result = mysqli_stmt_get_result($stmt);
                     
-                    // Check if password matches the part before @ in email
-                    if (strtolower($password) === $expected_password) {
-                        $_SESSION['student_id'] = $user['student_id'];
-                        $_SESSION['name'] = $user['student_name'];
-                        $_SESSION['email'] = $user['student_email'];
-                        $_SESSION['section'] = $user['section'];
-                        $_SESSION['department'] = $user['student_department'];
-                        $_SESSION['role'] = 'student';
-                        $_SESSION['logged_in'] = true;
-                        header('Location: student_dashboard.php');
-                        exit;
+                    if (mysqli_num_rows($result) > 0) {
+                        $user = mysqli_fetch_assoc($result);
+                        
+                        // Check if password matches the part before @ in email
+                        if (strtolower($password) === $expected_password) {
+                            // Regenerate session ID for security
+                            session_regenerate_id(true);
+                            
+                            $_SESSION['student_id'] = $user['student_id'];
+                            $_SESSION['name'] = $user['student_name'];
+                            $_SESSION['email'] = $user['student_email'];
+                            $_SESSION['section'] = $user['section'];
+                            $_SESSION['department'] = $user['student_department'];
+                            $_SESSION['role'] = 'student';
+                            $_SESSION['logged_in'] = true;
+                            $_SESSION['login_time'] = time();
+                            
+                            // Commit session data
+                            session_write_close();
+                            
+                            header('Location: student_dashboard.php');
+                            exit;
+                        } else {
+                            $error = "Invalid password. Password should be the part before @ in your email.";
+                        }
                     } else {
-                        $error = "Invalid password. Password should be the part before @ in your email.";
+                        $error = "Email not found in student database.";
                     }
-                } else {
-                    $error = "Email not found in student database.";
+                    mysqli_stmt_close($stmt);
                 }
             }
         }
@@ -130,6 +189,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['login'])) {
             align-items: center;
             justify-content: center;
             padding: 20px;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
         }
         
         .login-card {
@@ -139,6 +199,12 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['login'])) {
             box-shadow: 0 25px 50px rgba(0, 0, 0, 0.2);
             max-width: 500px;
             width: 100%;
+            animation: fadeIn 0.5s ease-in;
+        }
+        
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
         }
         
         .logo {
@@ -150,6 +216,22 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['login'])) {
             font-size: 3rem;
             color: #4361ee;
             margin-bottom: 15px;
+            animation: bounce 2s infinite;
+        }
+        
+        @keyframes bounce {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(-10px); }
+        }
+        
+        .logo h2 {
+            font-weight: 700;
+            color: #2c3e50;
+        }
+        
+        .logo p {
+            color: #7f8c8d;
+            font-size: 0.9rem;
         }
         
         .role-selector {
@@ -171,10 +253,34 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['login'])) {
             text-align: center;
         }
         
+        .role-btn:hover {
+            border-color: #4361ee;
+            transform: translateY(-2px);
+        }
+        
         .role-btn.active {
             background: #4361ee;
             color: white;
             border-color: #4361ee;
+            box-shadow: 0 4px 12px rgba(67, 97, 238, 0.3);
+        }
+        
+        .form-label {
+            font-weight: 600;
+            color: #2c3e50;
+            margin-bottom: 8px;
+        }
+        
+        .form-control {
+            border: 2px solid #e0e0e0;
+            border-radius: 10px;
+            padding: 12px 15px;
+            transition: all 0.3s;
+        }
+        
+        .form-control:focus {
+            border-color: #4361ee;
+            box-shadow: 0 0 0 0.25rem rgba(67, 97, 238, 0.25);
         }
         
         .btn-login {
@@ -186,15 +292,73 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['login'])) {
             font-weight: 600;
             width: 100%;
             margin-top: 20px;
+            transition: all 0.3s;
+            font-size: 1rem;
+        }
+        
+        .btn-login:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(67, 97, 238, 0.4);
+        }
+        
+        .btn-login:active {
+            transform: translateY(0);
         }
         
         .alert {
             border-radius: 10px;
+            border: none;
+            animation: slideDown 0.3s ease-out;
+        }
+        
+        @keyframes slideDown {
+            from { opacity: 0; transform: translateY(-10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        
+        .alert-danger {
+            background: linear-gradient(135deg, #ff6b6b 0%, #ee5a52 100%);
+            color: white;
+        }
+        
+        .alert-success {
+            background: linear-gradient(135deg, #51cf66 0%, #40c057 100%);
+            color: white;
         }
         
         .forgot-password {
             text-align: center;
             margin-top: 15px;
+        }
+        
+        .forgot-password a {
+            color: #4361ee;
+            text-decoration: none;
+            font-weight: 500;
+            transition: color 0.3s;
+        }
+        
+        .forgot-password a:hover {
+            color: #3a0ca3;
+            text-decoration: underline;
+        }
+        
+        .password-info {
+            font-size: 0.85rem;
+            color: #666;
+            margin-top: 5px;
+            display: block;
+        }
+        
+        /* Database error styling */
+        .db-error {
+            background: #ff6b6b;
+            color: white;
+            padding: 10px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            text-align: center;
+            font-weight: 500;
         }
     </style>
 </head>
@@ -206,14 +370,30 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['login'])) {
             <p class="text-muted">Department of Computer Science</p>
         </div>
         
-        <?php if ($error): ?>
-            <div class="alert alert-danger">
-                <i class="fas fa-exclamation-triangle me-2"></i>
-                <?php echo htmlspecialchars($error); ?>
+        <?php if (isset($db_error_message)): ?>
+            <div class="db-error">
+                <i class="fas fa-database me-2"></i>
+                <?php echo htmlspecialchars($db_error_message); ?>
             </div>
         <?php endif; ?>
         
-        <form method="POST" action="">
+        <?php if ($error): ?>
+            <div class="alert alert-danger alert-dismissible fade show" role="alert">
+                <i class="fas fa-exclamation-triangle me-2"></i>
+                <?php echo htmlspecialchars($error); ?>
+                <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+            </div>
+        <?php endif; ?>
+        
+        <?php if ($success): ?>
+            <div class="alert alert-success alert-dismissible fade show" role="alert">
+                <i class="fas fa-check-circle me-2"></i>
+                <?php echo htmlspecialchars($success); ?>
+                <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+            </div>
+        <?php endif; ?>
+        
+        <form method="POST" action="" id="loginForm" novalidate>
             <div class="role-selector">
                 <div class="role-btn active" onclick="selectRole('faculty')" id="facultyBtn">
                     <i class="fas fa-chalkboard-teacher me-2"></i> Faculty
@@ -227,19 +407,31 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['login'])) {
             
             <div class="mb-3">
                 <label class="form-label">Email Address</label>
-                <input type="email" name="email" class="form-control" placeholder="Enter your email" required>
+                <input type="email" name="email" class="form-control" placeholder="Enter your institute email" required
+                       value="<?php echo isset($_POST['email']) ? htmlspecialchars($_POST['email']) : ''; ?>">
                 <small class="text-muted">Use your institute email address</small>
             </div>
             
             <div class="mb-3">
                 <label class="form-label">Password</label>
-                <input type="password" name="password" class="form-control" placeholder="Enter password" required>
-                <small class="text-muted" id="passwordHint">
-                    Enter your custom password or default (part before @)
+                <div class="input-group">
+                    <input type="password" name="password" class="form-control" placeholder="Enter password" required id="passwordField">
+                    <button class="btn btn-outline-secondary" type="button" id="togglePassword">
+                        <i class="fas fa-eye"></i>
+                    </button>
+                </div>
+                <small class="passwordHint text-muted" id="passwordHint">
+                    For faculty: Enter custom password or part before @<br>
+                    For students: Password is the part before @ in your email
                 </small>
             </div>
             
-            <button type="submit" name="login" class="btn-login">
+            <div class="mb-3 form-check">
+                <input type="checkbox" class="form-check-input" id="rememberMe" name="remember">
+                <label class="form-check-label" for="rememberMe">Remember me</label>
+            </div>
+            
+            <button type="submit" name="login" class="btn-login" id="loginButton">
                 <i class="fas fa-sign-in-alt me-2"></i> Login to System
             </button>
             
@@ -263,6 +455,9 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['login'])) {
         </svg>
     </button>
     
+    <!-- Bootstrap JS Bundle -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    
     <script>
         function selectRole(role) {
             const facultyBtn = document.getElementById('facultyBtn');
@@ -277,87 +472,103 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['login'])) {
                 facultyBtn.classList.add('active');
                 selectedRole.value = 'faculty';
                 if (passwordHint) {
-                    passwordHint.textContent = 'Enter your custom password or default (part before @)';
+                    passwordHint.innerHTML = 'For faculty: Enter custom password or part before @<br>Default: Part before @ in your email';
                 }
             } else {
                 studentBtn.classList.add('active');
                 selectedRole.value = 'student';
                 if (passwordHint) {
-                    passwordHint.textContent = 'Password is the part before @ in your email';
+                    passwordHint.innerHTML = 'For students: Password is always the part before @ in your email';
                 }
             }
         }
         
-        function translatePage() {
-            // Try Google Translate first
-            if (window.google && google.translate && google.translate.TranslateElement) {
-                var translateDiv = document.getElementById('google_translate_element');
-                if (!translateDiv) {
-                    translateDiv = document.createElement('div');
-                    translateDiv.id = 'google_translate_element';
-                    translateDiv.style.position = 'fixed';
-                    translateDiv.style.bottom = '20px';
-                    translateDiv.style.right = '20px';
-                    translateDiv.style.zIndex = '9999';
-                    translateDiv.style.display = 'none';
-                    document.body.appendChild(translateDiv);
-                }
-                
-                new google.translate.TranslateElement({
-                    pageLanguage: 'en',
-                    includedLanguages: 'en,hi,te',
-                    layout: google.translate.TranslateElement.InlineLayout.SIMPLE,
-                    autoDisplay: false
-                }, 'google_translate_element');
-                
-                setTimeout(function() {
-                    var googleBtn = document.querySelector('.goog-te-menu-value');
-                    if (googleBtn) {
-                        googleBtn.click();
-                    }
-                }, 100);
-                
+        // Toggle password visibility
+        document.getElementById('togglePassword').addEventListener('click', function() {
+            const passwordField = document.getElementById('passwordField');
+            const icon = this.querySelector('i');
+            
+            if (passwordField.type === 'password') {
+                passwordField.type = 'text';
+                icon.classList.remove('fa-eye');
+                icon.classList.add('fa-eye-slash');
             } else {
-                var script = document.createElement('script');
-                script.src = 'https://translate.google.com/translate_a/element.js?cb=initGoogleTranslate';
-                document.head.appendChild(script);
-                
-                window.initGoogleTranslate = function() {
-                    var translateDiv = document.getElementById('google_translate_element');
-                    if (!translateDiv) {
-                        translateDiv = document.createElement('div');
-                        translateDiv.id = 'google_translate_element';
-                        translateDiv.style.position = 'fixed';
-                        translateDiv.style.bottom = '20px';
-                        translateDiv.style.right = '20px';
-                        translateDiv.style.zIndex = '9999';
-                        translateDiv.style.display = 'none';
-                        document.body.appendChild(translateDiv);
-                    }
-                    
+                passwordField.type = 'password';
+                icon.classList.remove('fa-eye-slash');
+                icon.classList.add('fa-eye');
+            }
+        });
+        
+        // Form validation
+        document.getElementById('loginForm').addEventListener('submit', function(e) {
+            const email = this.querySelector('[name="email"]').value;
+            const password = this.querySelector('[name="password"]').value;
+            const loginButton = document.getElementById('loginButton');
+            
+            if (!email || !password) {
+                e.preventDefault();
+                alert('Please fill in all fields');
+                return;
+            }
+            
+            // Show loading state
+            loginButton.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i> Logging in...';
+            loginButton.disabled = true;
+        });
+        
+        // Auto-detect role from email
+        document.querySelector('[name="email"]').addEventListener('blur', function() {
+            const email = this.value;
+            if (email.includes('@')) {
+                // You can add logic to auto-detect role based on email domain
+                // For example: if (email.endsWith('@faculty.edu')) selectRole('faculty');
+            }
+        });
+        
+        function translatePage() {
+            // Simple translate function
+            if (typeof google !== 'undefined' && google.translate) {
+                try {
                     new google.translate.TranslateElement({
                         pageLanguage: 'en',
                         includedLanguages: 'en,hi,te',
-                        layout: google.translate.TranslateElement.InlineLayout.SIMPLE,
-                        autoDisplay: false
+                        layout: google.translate.TranslateElement.InlineLayout.SIMPLE
                     }, 'google_translate_element');
                     
-                    setTimeout(function() {
-                        var googleBtn = document.querySelector('.goog-te-menu-value');
-                        if (googleBtn) {
-                            googleBtn.click();
-                        }
-                    }, 500);
+                    // Create element if not exists
+                    if (!document.getElementById('google_translate_element')) {
+                        const div = document.createElement('div');
+                        div.id = 'google_translate_element';
+                        div.style.display = 'none';
+                        document.body.appendChild(div);
+                    }
+                    
+                    // Trigger translation UI
+                    setTimeout(() => {
+                        const translateButton = document.querySelector('.goog-te-menu-value');
+                        if (translateButton) translateButton.click();
+                    }, 100);
+                } catch (e) {
+                    console.log('Translate error:', e);
+                    alert('Translation service unavailable');
+                }
+            } else {
+                // Load Google Translate
+                const script = document.createElement('script');
+                script.src = 'https://translate.google.com/translate_a/element.js?cb=googleTranslateElementInit';
+                document.head.appendChild(script);
+                
+                window.googleTranslateElementInit = function() {
+                    new google.translate.TranslateElement({
+                        pageLanguage: 'en',
+                        includedLanguages: 'en,hi,te',
+                        layout: google.translate.TranslateElement.InlineLayout.SIMPLE
+                    }, 'google_translate_element');
                 };
             }
-            
-            const btn = document.getElementById('translateBtn');
-            btn.style.transform = 'scale(0.9)';
-            setTimeout(() => {
-                btn.style.transform = 'scale(1)';
-            }, 150);
         }
         
+        // Button hover effects
         const translateBtn = document.getElementById('translateBtn');
         translateBtn.addEventListener('mouseenter', function() {
             this.style.transform = 'scale(1.1)';
@@ -370,82 +581,32 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['login'])) {
             this.style.boxShadow = '0 4px 15px rgba(26, 115, 232, 0.4)';
             this.style.background = 'linear-gradient(135deg, #1a73e8, #0d62d9)';
         });
-        
-        const tooltip = document.createElement('div');
-        tooltip.textContent = 'Translate';
-        tooltip.style.cssText = `
-            position: absolute;
-            bottom: 70px;
-            right: 15px;
-            background: #333;
-            color: white;
-            padding: 6px 12px;
-            border-radius: 6px;
-            font-size: 12px;
-            font-weight: 500;
-            white-space: nowrap;
-            opacity: 0;
-            transform: translateY(10px);
-            transition: all 0.3s ease;
-            pointer-events: none;
-            z-index: 10001;
-        `;
-        translateBtn.appendChild(tooltip);
-        
-        translateBtn.addEventListener('mouseenter', function() {
-            tooltip.style.opacity = '1';
-            tooltip.style.transform = 'translateY(0)';
-        });
-        
-        translateBtn.addEventListener('mouseleave', function() {
-            tooltip.style.opacity = '0';
-            tooltip.style.transform = 'translateY(10px)';
-        });
     </script>
     
     <style>
-        .goog-te-banner-frame { display: none !important; }
-        .skiptranslate { display: none !important; }
-        body { top: 0 !important; position: static !important; }
-        
-        .goog-te-menu-frame {
-            border-radius: 12px !important;
-            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.15) !important;
-            border: 1px solid #e0e0e0 !important;
-            max-width: 220px !important;
-            bottom: 95px !important;
-            top: auto !important;
-            right: 20px !important;
-            left: auto !important;
+        /* Hide Google Translate elements */
+        .goog-te-banner-frame, .goog-te-menu-value span, .goog-logo-link {
+            display: none !important;
         }
         
-        .goog-te-menu2 {
-            max-width: 220px !important;
-            border-radius: 12px !important;
-            overflow: hidden !important;
-            padding: 8px 0 !important;
+        .goog-te-gadget {
+            font-size: 0 !important;
         }
         
-        .goog-te-menu2-item {
-            padding: 12px 20px !important;
-            font-size: 14px !important;
-            color: #333 !important;
+        /* Style for password toggle */
+        #togglePassword {
+            border-radius: 0 10px 10px 0;
+            border-left: none;
         }
         
-        .goog-te-menu2-item:hover {
-            background-color: #f5f8ff !important;
-            color: #1a73e8 !important;
+        /* Loading animation */
+        .fa-spinner {
+            animation: spin 1s linear infinite;
         }
         
-        .goog-logo-link { display: none !important; }
-        
-        #translateBtn div:last-child:after {
-            content: '';
-            position: absolute;
-            top: 100%;
-            right: 20px;
-            border: 5px solid transparent;
-            border-top-color: #333;
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
         }
     </style>
 </body>
