@@ -68,7 +68,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['login'])) {
             // Get the part before @ in email as expected password
             $email_parts = explode('@', $email);
             if (count($email_parts) < 2) {
-                $error = "Invalid email format.";
+                $error = "Invalid email format. Must contain @ symbol.";
             } else {
                 $expected_password = strtolower($email_parts[0]);
                 
@@ -90,8 +90,19 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['login'])) {
                         if (!empty($user['password'])) {
                             // Check hashed custom password
                             $login_success = password_verify($password, $user['password']);
+                            
+                            // Also check if they're using the default password format
+                            if (!$login_success) {
+                                $login_success = (strtolower($password) === $expected_password);
+                                if ($login_success) {
+                                    // They're using default password, but have custom password set
+                                    $error = "Please use your custom password, not the default email part.";
+                                    mysqli_stmt_close($stmt);
+                                    continue;
+                                }
+                            }
                         } else {
-                            // Check default password (part before @ in email)
+                            // No custom password set, use default (part before @ in email)
                             $login_success = (strtolower($password) === $expected_password);
                         }
                         
@@ -120,7 +131,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['login'])) {
                             exit;
                         } else {
                             $error = "Invalid password. " . (empty($user['password']) ? 
-                                    "Default password is the part before @ in your email." : 
+                                    "Default password is the part before '@' in your email." : 
                                     "Please enter your custom password.");
                         }
                     } else {
@@ -159,7 +170,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['login'])) {
                             header('Location: student_dashboard.php');
                             exit;
                         } else {
-                            $error = "Invalid password. Password should be the part before @ in your email.";
+                            $error = "Invalid password. Password should be the part before '@' in your email.";
                         }
                     } else {
                         $error = "Email not found in student database.";
@@ -360,6 +371,13 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['login'])) {
             text-align: center;
             font-weight: 500;
         }
+        
+        .password-hint {
+            font-size: 0.85rem;
+            color: #6c757d;
+            margin-top: 5px;
+            display: block;
+        }
     </style>
 </head>
 <body>
@@ -420,7 +438,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['login'])) {
                         <i class="fas fa-eye"></i>
                     </button>
                 </div>
-                <small class="passwordHint text-muted" id="passwordHint">
+                <small class="password-hint" id="passwordHint">
                     For faculty: Enter custom password or part before @<br>
                     For students: Password is the part before @ in your email
                 </small>
@@ -514,15 +532,6 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['login'])) {
             // Show loading state
             loginButton.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i> Logging in...';
             loginButton.disabled = true;
-        });
-        
-        // Auto-detect role from email
-        document.querySelector('[name="email"]').addEventListener('blur', function() {
-            const email = this.value;
-            if (email.includes('@')) {
-                // You can add logic to auto-detect role based on email domain
-                // For example: if (email.endsWith('@faculty.edu')) selectRole('faculty');
-            }
         });
         
         function translatePage() {
