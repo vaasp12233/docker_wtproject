@@ -1,5 +1,7 @@
 <?php
-// login.php - SIMPLIFIED WORKING VERSION
+// login.php - FIXED VERSION
+// NO WHITESPACE BEFORE THIS LINE!
+
 // Start session FIRST
 session_start();
 
@@ -131,7 +133,6 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['login'])) {
     }
 }
 ?>
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
