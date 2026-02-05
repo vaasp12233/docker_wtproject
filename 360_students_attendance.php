@@ -290,7 +290,21 @@ $avg_percentage = $total_students > 0 ? round($avg_percentage / $total_students,
             <i class="fas fa-users text-primary"></i> 360° Students Attendance Overview
             <small class="text-muted ms-2">Faculty: <?php echo htmlspecialchars($faculty['faculty_name']); ?></small>
         </h1>
-       
+        <!-- ADD THE BUTTON GROUP HERE (FIXED LOCATION) -->
+        <div class="btn-group">
+            <button onclick="printReport()" class="btn btn-primary btn-sm">
+                <i class="fas fa-print"></i> Print
+            </button>
+            <button onclick="exportToExcel()" class="btn btn-success btn-sm">
+                <i class="fas fa-file-excel"></i> Excel
+            </button>
+            <button onclick="exportToCSV()" class="btn btn-info btn-sm">
+                <i class="fas fa-file-csv"></i> CSV
+            </button>
+            <a href="bulk_download.php?<?php echo http_build_query($_GET); ?>" class="btn btn-warning btn-sm">
+                <i class="fas fa-download"></i> Bulk
+            </a>
+        </div>
     </div>
 
     <!-- Statistics Cards -->
@@ -1051,22 +1065,6 @@ $avg_percentage = $total_students > 0 ? round($avg_percentage / $total_students,
     </div>
 </div>
 
-<!-- In 360_students_attendance.php, add this button to the header buttons section -->
-<div class="btn-group">
-    <button onclick="printReport()" class="btn btn-primary">
-        <i class="fas fa-print"></i> Print Report
-    </button>
-    <button onclick="exportToExcel()" class="btn btn-success">
-        <i class="fas fa-file-excel"></i> Export Excel
-    </button>
-    <button onclick="exportToCSV()" class="btn btn-info">
-        <i class="fas fa-file-csv"></i> Export CSV
-    </button>
-    <!-- ADD THIS NEW BUTTON -->
-    <a href="bulk_download.php?<?php echo http_build_query($_GET); ?>" class="btn btn-warning">
-        <i class="fas fa-download"></i> Bulk Download
-    </a>
-</div>
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
