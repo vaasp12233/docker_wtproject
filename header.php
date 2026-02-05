@@ -1,47 +1,8 @@
 <?php
-// ==================== CRITICAL: Start output buffering ====================
-// This prevents "headers already sent" errors
-if (!ob_get_level()) {
-    ob_start();
-}
-
-// ==================== Start session if not already started ====================
+// Common header for all pages
+// Start session if not already started
 if (session_status() === PHP_SESSION_NONE) {
-    // Configure session for Render
-    ini_set('session.save_path', '/tmp');
-    ini_set('session.cookie_lifetime', 86400);
-    @session_start();
-}
-
-// ==================== Include database config if needed ====================
-// Only include if DB connection is needed for this page
-// Note: Not all pages need DB connection, so we check first
-$needs_db = true; // Set to false in pages that don't need DB
-
-// Check if this is a public page (like login, index) that might not need DB
-$public_pages = ['login.php', 'index.php', 'logout.php'];
-$current_page = basename($_SERVER['PHP_SELF']);
-if (in_array($current_page, $public_pages)) {
-    $needs_db = false;
-}
-
-if ($needs_db && !isset($conn)) {
-    // Check if config.php exists
-    if (file_exists('config.php')) {
-        require_once 'config.php';
-    }
-}
-
-// ==================== Set default page title if not defined ====================
-if (!isset($page_title)) {
-    $page_title = 'CSE Attendance System';
-}
-
-// ==================== Clean buffer before output ====================
-// But don't clean if we're in the middle of output
-if (ob_get_length() > 0 && !headers_sent()) {
-    ob_end_clean();
-    ob_start(); // Start new buffer for HTML output
+    session_start();
 }
 ?>
 <!DOCTYPE html>
@@ -49,7 +10,7 @@ if (ob_get_length() > 0 && !headers_sent()) {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title><?php echo htmlspecialchars($page_title); ?></title>
+    <title><?php echo isset($page_title) ? htmlspecialchars($page_title) . ' - ' : ''; ?>CSE Attendance System</title>
     <!-- Bootstrap 5 -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <!-- Font Awesome -->
@@ -66,7 +27,6 @@ if (ob_get_length() > 0 && !headers_sent()) {
             background: #f8f9fa;
             color: #212529;
             transition: all 0.3s ease;
-            min-height: 100vh;
         }
         
         .navbar {
@@ -294,19 +254,6 @@ if (ob_get_length() > 0 && !headers_sent()) {
         body.dark-mode .dropdown-divider {
             border-color: #444;
         }
-        
-        /* Fix for alerts */
-        body.dark-mode .alert {
-            background: #1e1e1e;
-            color: #e0e0e0;
-            border-color: #333;
-        }
-        
-        /* Main content wrapper */
-        .main-content {
-            min-height: calc(100vh - 140px);
-            padding-bottom: 40px;
-        }
     </style>
 </head>
 <body>
@@ -322,18 +269,21 @@ if (ob_get_length() > 0 && !headers_sent()) {
             <div class="collapse navbar-collapse" id="navbarNav">
                 <ul class="navbar-nav ms-auto align-items-center">
                     <?php if(isset($_SESSION['logged_in']) && $_SESSION['logged_in'] === true): ?>
-                        <li class="nav-item">
-                            <a class="nav-link" href="<?php echo $_SESSION['role'] == 'faculty' ? 'faculty_dashboard.php' : 'student_dashboard.php'; ?>">
-                                <i class="fas fa-home me-1"></i> Dashboard
-                            </a>
-                        </li>
-                        <li class="nav-item">
-                            <span class="nav-link text-primary">
-                                <i class="fas fa-user me-1"></i>
-                                <?php echo isset($_SESSION['name']) ? htmlspecialchars($_SESSION['name']) : 'User'; ?>
-                                (<?php echo isset($_SESSION['role']) ? ucfirst($_SESSION['role']) : ''; ?>)
-                            </span>
-                        </li>
+                        <?php if(isset($_SESSION['role'])): ?>
+                            <?php if($_SESSION['role'] == 'faculty'): ?>
+                                <li class="nav-item">
+                                    <a class="nav-link" href="faculty_dashboard.php">
+                                        <i class="fas fa-home me-1"></i> Dashboard
+                                    </a>
+                                </li>
+                            <?php elseif($_SESSION['role'] == 'student'): ?>
+                                <li class="nav-item">
+                                    <a class="nav-link" href="student_dashboard.php">
+                                        <i class="fas fa-home me-1"></i> Dashboard
+                                    </a>
+                                </li>
+                            <?php endif; ?>
+                        <?php endif; ?>
                         <li class="nav-item">
                             <a class="nav-link" href="logout.php">
                                 <i class="fas fa-sign-out-alt me-1"></i> Logout
@@ -345,14 +295,9 @@ if (ob_get_length() > 0 && !headers_sent()) {
                                 <i class="fas fa-sign-in-alt me-1"></i> Login
                             </a>
                         </li>
-                        <li class="nav-item">
-                            <a class="nav-link" href="index.php">
-                                <i class="fas fa-home me-1"></i> Home
-                            </a>
-                        </li>
                     <?php endif; ?>
                     
-                    <!-- Dark/Light Mode Toggle Button -->
+                    <!-- Dark/Light Mode Toggle Button - NOW VISIBLE IN DARK MODE -->
                     <li class="nav-item">
                         <button class="theme-toggle" id="themeToggle" aria-label="Toggle dark/light mode">
                             <i class="fas fa-moon" id="themeIcon"></i>
@@ -362,6 +307,56 @@ if (ob_get_length() > 0 && !headers_sent()) {
             </div>
         </div>
     </nav>
+    <div class="container mt-4">
     
-    <div class="main-content">
-        <div class="container mt-4">
+    <script>
+    // Dark/Light Mode Toggle
+    const themeToggle = document.getElementById('themeToggle');
+    const themeIcon = document.getElementById('themeIcon');
+    const body = document.body;
+    
+    // Check for saved theme or prefer-color-scheme
+    const prefersDarkScheme = window.matchMedia('(prefers-color-scheme: dark)');
+    const currentTheme = localStorage.getItem('theme');
+    
+    // Set initial theme
+    if (currentTheme === 'dark' || (!currentTheme && prefersDarkScheme.matches)) {
+        enableDarkMode();
+    } else {
+        enableLightMode();
+    }
+    
+    // Toggle theme on button click
+    themeToggle.addEventListener('click', function() {
+        if (body.classList.contains('dark-mode')) {
+            enableLightMode();
+        } else {
+            enableDarkMode();
+        }
+    });
+    
+    function enableDarkMode() {
+        body.classList.add('dark-mode');
+        themeIcon.classList.remove('fa-moon');
+        themeIcon.classList.add('fa-sun');
+        localStorage.setItem('theme', 'dark');
+    }
+    
+    function enableLightMode() {
+        body.classList.remove('dark-mode');
+        themeIcon.classList.remove('fa-sun');
+        themeIcon.classList.add('fa-moon');
+        localStorage.setItem('theme', 'light');
+    }
+    
+    // Listen for system theme changes
+    prefersDarkScheme.addEventListener('change', function(e) {
+        if (!localStorage.getItem('theme')) {
+            if (e.matches) {
+                enableDarkMode();
+            } else {
+                enableLightMode();
+            }
+        }
+    });
+    </script>
