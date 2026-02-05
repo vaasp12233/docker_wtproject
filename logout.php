@@ -1,43 +1,34 @@
 <?php
-// logout.php - Fixed for Render + Aiven
-
-// ==================== CRITICAL: Start output buffering ====================
-// This catches any stray output before headers
-if (!ob_get_level()) {
-    ob_start();
+// Start session only if not already started
+if (session_status() === PHP_SESSION_NONE) {
+    session_start();
 }
 
-// ==================== Configure session for Render ====================
-ini_set('session.save_path', '/tmp');
-
-// ==================== Destroy session properly ====================
-// Clear session data first
+// Clear all session variables
 $_SESSION = array();
 
-// Delete the session cookie
+// Destroy the session
 if (ini_get("session.use_cookies")) {
     $params = session_get_cookie_params();
-    setcookie(
-        session_name(),
-        '',
-        time() - 42000,
-        $params["path"],
-        $params["domain"],
-        $params["secure"],
-        $params["httponly"]
+    setcookie(session_name(), '', time() - 42000,
+        $params["path"], $params["domain"],
+        $params["secure"], $params["httponly"]
     );
 }
 
-// Destroy the session
-if (session_status() === PHP_SESSION_ACTIVE) {
-    session_destroy();
-}
+session_destroy();
 
-// ==================== Clean buffer before redirect ====================
-if (ob_get_length() > 0) {
+// Clear any output buffer to prevent header issues
+if (ob_get_length()) {
     ob_end_clean();
 }
 
-// ==================== Redirect to login ====================
+// Add cache control headers to prevent caching of logout page
+header("Cache-Control: no-cache, no-store, must-revalidate");
+header("Pragma: no-cache");
+header("Expires: 0");
+
+// Redirect to login page
 header('Location: login.php?message=logged_out');
 exit;
+?>
