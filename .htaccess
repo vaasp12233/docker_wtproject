@@ -2,7 +2,7 @@
 php_flag log_errors on
 
 # Set output buffering
-php_value output_buffering On
+
 
 # Set timezone
 php_value date.timezone "Asia/Kolkata"
