@@ -1,17 +1,10 @@
 # Disable PHP errors from showing in production
+php_flag display_errors on
 php_flag log_errors on
+php_value error_log /tmp/php_errors.log
 
 # Set output buffering
-
+php_value output_buffering On
 
 # Set timezone
 php_value date.timezone "Asia/Kolkata"
-# Enable error display
-php_flag display_errors on
-php_value error_reporting 32767
-
-# URL Rewriting
-RewriteEngine On
-RewriteCond %{REQUEST_FILENAME} !-f
-RewriteCond %{REQUEST_FILENAME} !-d
-RewriteRule ^ index.php [L]
