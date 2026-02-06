@@ -1,5 +1,5 @@
 <?php
-// faculty_dashboard.php - Fixed for Render + Aiven with Lab Type Selection
+// faculty_dashboard.php - Fixed for Render + Aiven with Lab Type Selection AND Subject Restriction
 
 // ==================== CRITICAL: Start output buffering ====================
 if (!ob_get_level()) {
@@ -64,9 +64,12 @@ if (isset($_SESSION['error_message'])) {
     unset($_SESSION['error_message']);
 }
 
-// ==================== Get faculty details ====================
+// ==================== Get faculty details including allowed_subjects ====================
 $faculty = null;
-$faculty_query = "SELECT * FROM faculty WHERE faculty_id = ?";
+$allowed_subjects_str = '';
+$allowed_subjects_array = [];
+
+$faculty_query = "SELECT *, allowed_subjects FROM faculty WHERE faculty_id = ?";
 $faculty_stmt = mysqli_prepare($conn, $faculty_query);
 
 if ($faculty_stmt) {
@@ -85,6 +88,13 @@ if ($faculty_stmt) {
     
     $faculty = mysqli_fetch_assoc($result);
     mysqli_stmt_close($faculty_stmt);
+    
+    // Process allowed_subjects
+    $allowed_subjects_str = $faculty['allowed_subjects'] ?? '';
+    if (!empty($allowed_subjects_str)) {
+        $allowed_subjects_array = array_map('trim', explode(',', $allowed_subjects_str));
+        $allowed_subjects_array = array_filter($allowed_subjects_array); // Remove empty values
+    }
 } else {
     die("Database error: " . mysqli_error($conn));
 }
@@ -92,12 +102,34 @@ if ($faculty_stmt) {
 // ==================== Check if faculty has custom password ====================
 $has_custom_password = !empty($faculty['password']);
 
-// ==================== Get subjects for dropdown ====================
+// ==================== Get subjects for dropdown (ONLY allowed subjects) ====================
 $subjects_result = null;
-$subjects_query = "SELECT * FROM subjects ORDER BY subject_name";
-$subjects_result = mysqli_query($conn, $subjects_query);
-if (!$subjects_result) {
-    $subjects_result = null;
+$has_allowed_subjects = !empty($allowed_subjects_array);
+
+if ($has_allowed_subjects) {
+    // Create placeholders for IN clause based on allowed_subjects_array count
+    $placeholders = str_repeat('?,', count($allowed_subjects_array) - 1) . '?';
+    $subjects_query = "SELECT * FROM subjects WHERE subject_code IN ($placeholders) ORDER BY subject_name";
+    
+    $subjects_stmt = mysqli_prepare($conn, $subjects_query);
+    
+    // Bind parameters dynamically
+    $types = str_repeat('s', count($allowed_subjects_array));
+    mysqli_stmt_bind_param($subjects_stmt, $types, ...$allowed_subjects_array);
+    
+    mysqli_stmt_execute($subjects_stmt);
+    $subjects_result = mysqli_stmt_get_result($subjects_stmt);
+    
+    // Store results in array for later use
+    $subjects_data = [];
+    while ($subject = mysqli_fetch_assoc($subjects_result)) {
+        $subjects_data[] = $subject;
+    }
+    // Reset pointer by creating a new result set from the array
+    $subjects_result = null; // We'll use $subjects_data array instead
+} else {
+    // No allowed subjects - faculty cannot access any subjects
+    $subjects_data = [];
 }
 
 // ==================== Check what time column exists in sessions table ====================
@@ -121,59 +153,102 @@ if ($has_created_at) {
     $time_column = "session_id"; // Fallback to sort by ID
 }
 
-// ==================== Get recent sessions for stats ====================
+// ==================== Get recent sessions for stats (filtered by allowed subjects) ====================
 $recent_sessions_result = null;
-$recent_sessions_query = "SELECT s.*, sub.subject_code, sub.subject_name 
-                         FROM sessions s 
-                         JOIN subjects sub ON s.subject_id = sub.subject_id 
-                         WHERE s.faculty_id = ? 
-                         ORDER BY s.$time_column DESC LIMIT 5";
-$recent_sessions_stmt = mysqli_prepare($conn, $recent_sessions_query);
+$recent_sessions_data = [];
 
-if ($recent_sessions_stmt) {
-    mysqli_stmt_bind_param($recent_sessions_stmt, "s", $faculty_id);
-    mysqli_stmt_execute($recent_sessions_stmt);
-    $recent_sessions_result = mysqli_stmt_get_result($recent_sessions_stmt);
-    mysqli_stmt_close($recent_sessions_stmt);
+if ($has_allowed_subjects) {
+    $placeholders = str_repeat('?,', count($allowed_subjects_array) - 1) . '?';
+    $recent_sessions_query = "SELECT s.*, sub.subject_code, sub.subject_name 
+                             FROM sessions s 
+                             JOIN subjects sub ON s.subject_id = sub.subject_id 
+                             WHERE s.faculty_id = ? 
+                             AND sub.subject_code IN ($placeholders)
+                             ORDER BY s.$time_column DESC LIMIT 5";
+    
+    $recent_sessions_stmt = mysqli_prepare($conn, $recent_sessions_query);
+    
+    if ($recent_sessions_stmt) {
+        // Bind faculty_id + all subject codes
+        $params = array_merge([$faculty_id], $allowed_subjects_array);
+        $types = "s" . str_repeat('s', count($allowed_subjects_array));
+        mysqli_stmt_bind_param($recent_sessions_stmt, $types, ...$params);
+        mysqli_stmt_execute($recent_sessions_stmt);
+        $recent_sessions_temp = mysqli_stmt_get_result($recent_sessions_stmt);
+        
+        // Store in array
+        while ($session = mysqli_fetch_assoc($recent_sessions_temp)) {
+            $recent_sessions_data[] = $session;
+        }
+        mysqli_stmt_close($recent_sessions_stmt);
+    }
 }
 
-// ==================== Get stats ====================
+// ==================== Get stats (filtered by allowed subjects) ====================
 $total_sessions = 0;
-$sessions_count_query = "SELECT COUNT(*) as count FROM sessions WHERE faculty_id = ?";
-$sessions_count_stmt = mysqli_prepare($conn, $sessions_count_query);
-if ($sessions_count_stmt) {
-    mysqli_stmt_bind_param($sessions_count_stmt, "s", $faculty_id);
-    mysqli_stmt_execute($sessions_count_stmt);
-    $sessions_count_result = mysqli_stmt_get_result($sessions_count_stmt);
-    $sessions_count_data = mysqli_fetch_assoc($sessions_count_result);
-    $total_sessions = $sessions_count_data['count'] ?? 0;
-    mysqli_stmt_close($sessions_count_stmt);
-}
-
 $total_attendance = 0;
-$attendance_count_query = "SELECT COUNT(*) as total FROM attendance_records ar 
-                          JOIN sessions s ON ar.session_id = s.session_id 
-                          WHERE s.faculty_id = ?";
-$attendance_count_stmt = mysqli_prepare($conn, $attendance_count_query);
-if ($attendance_count_stmt) {
-    mysqli_stmt_bind_param($attendance_count_stmt, "s", $faculty_id);
-    mysqli_stmt_execute($attendance_count_stmt);
-    $attendance_count_result = mysqli_stmt_get_result($attendance_count_stmt);
-    $attendance_count_data = mysqli_fetch_assoc($attendance_count_result);
-    $total_attendance = $attendance_count_data['total'] ?? 0;
-    mysqli_stmt_close($attendance_count_stmt);
-}
-
 $active_count = 0;
-$active_sessions_query = "SELECT COUNT(*) as count FROM sessions WHERE faculty_id = ? AND is_active = 1";
-$active_sessions_stmt = mysqli_prepare($conn, $active_sessions_query);
-if ($active_sessions_stmt) {
-    mysqli_stmt_bind_param($active_sessions_stmt, "s", $faculty_id);
-    mysqli_stmt_execute($active_sessions_stmt);
-    $active_sessions_result = mysqli_stmt_get_result($active_sessions_stmt);
-    $active_sessions_data = mysqli_fetch_assoc($active_sessions_result);
-    $active_count = $active_sessions_data['count'] ?? 0;
-    mysqli_stmt_close($active_sessions_stmt);
+
+if ($has_allowed_subjects) {
+    // Total sessions count
+    $placeholders = str_repeat('?,', count($allowed_subjects_array) - 1) . '?';
+    $sessions_count_query = "SELECT COUNT(*) as count 
+                            FROM sessions s 
+                            JOIN subjects sub ON s.subject_id = sub.subject_id 
+                            WHERE s.faculty_id = ? 
+                            AND sub.subject_code IN ($placeholders)";
+    
+    $sessions_count_stmt = mysqli_prepare($conn, $sessions_count_query);
+    if ($sessions_count_stmt) {
+        $params = array_merge([$faculty_id], $allowed_subjects_array);
+        $types = "s" . str_repeat('s', count($allowed_subjects_array));
+        mysqli_stmt_bind_param($sessions_count_stmt, $types, ...$params);
+        mysqli_stmt_execute($sessions_count_stmt);
+        $sessions_count_result = mysqli_stmt_get_result($sessions_count_stmt);
+        $sessions_count_data = mysqli_fetch_assoc($sessions_count_result);
+        $total_sessions = $sessions_count_data['count'] ?? 0;
+        mysqli_stmt_close($sessions_count_stmt);
+    }
+    
+    // Total attendance records
+    $attendance_count_query = "SELECT COUNT(*) as total 
+                              FROM attendance_records ar 
+                              JOIN sessions s ON ar.session_id = s.session_id 
+                              JOIN subjects sub ON s.subject_id = sub.subject_id 
+                              WHERE s.faculty_id = ? 
+                              AND sub.subject_code IN ($placeholders)";
+    
+    $attendance_count_stmt = mysqli_prepare($conn, $attendance_count_query);
+    if ($attendance_count_stmt) {
+        $params = array_merge([$faculty_id], $allowed_subjects_array);
+        $types = "s" . str_repeat('s', count($allowed_subjects_array));
+        mysqli_stmt_bind_param($attendance_count_stmt, $types, ...$params);
+        mysqli_stmt_execute($attendance_count_stmt);
+        $attendance_count_result = mysqli_stmt_get_result($attendance_count_stmt);
+        $attendance_count_data = mysqli_fetch_assoc($attendance_count_result);
+        $total_attendance = $attendance_count_data['total'] ?? 0;
+        mysqli_stmt_close($attendance_count_stmt);
+    }
+    
+    // Active sessions count
+    $active_sessions_query = "SELECT COUNT(*) as count 
+                             FROM sessions s 
+                             JOIN subjects sub ON s.subject_id = sub.subject_id 
+                             WHERE s.faculty_id = ? 
+                             AND s.is_active = 1 
+                             AND sub.subject_code IN ($placeholders)";
+    
+    $active_sessions_stmt = mysqli_prepare($conn, $active_sessions_query);
+    if ($active_sessions_stmt) {
+        $params = array_merge([$faculty_id], $allowed_subjects_array);
+        $types = "s" . str_repeat('s', count($allowed_subjects_array));
+        mysqli_stmt_bind_param($active_sessions_stmt, $types, ...$params);
+        mysqli_stmt_execute($active_sessions_stmt);
+        $active_sessions_result = mysqli_stmt_get_result($active_sessions_stmt);
+        $active_sessions_data = mysqli_fetch_assoc($active_sessions_result);
+        $active_count = $active_sessions_data['count'] ?? 0;
+        mysqli_stmt_close($active_sessions_stmt);
+    }
 }
 
 // ==================== Set page title ====================
@@ -184,7 +259,7 @@ include 'header.php';
 ?>
 
 <div class="container-fluid mt-4">
-    <!-- Welcome Banner -->
+    <!-- Welcome Banner with Subject Access Info -->
     <div class="row mb-4">
         <div class="col-12">
             <div class="card bg-primary text-white shadow-lg">
@@ -195,10 +270,22 @@ include 'header.php';
                             <p class="mb-0 opacity-75">
                                 <i class="fas fa-envelope me-1"></i> <?php echo htmlspecialchars($faculty['faculty_email']); ?>
                                 | <i class="fas fa-building me-1"></i> <?php echo htmlspecialchars($faculty['faculty_department']); ?>
-                                <?php if (!$has_custom_password): ?>
-                                    | <span class="text-warning"><i class="fas fa-exclamation-triangle me-1"></i> Default Password</span>
-                                <?php endif; ?>
                             </p>
+                            <div class="mt-2">
+                                <span class="badge bg-light text-primary">
+                                    <i class="fas fa-book me-1"></i>
+                                    <?php if ($has_allowed_subjects): ?>
+                                        Access to: <?php echo htmlspecialchars(implode(', ', $allowed_subjects_array)); ?>
+                                    <?php else: ?>
+                                        No subjects assigned
+                                    <?php endif; ?>
+                                </span>
+                                <?php if (!$has_custom_password): ?>
+                                    <span class="badge bg-warning ms-2">
+                                        <i class="fas fa-exclamation-triangle me-1"></i> Default Password
+                                    </span>
+                                <?php endif; ?>
+                            </div>
                         </div>
                         <div class="col-md-4 text-md-end">
                             <div class="bg-white text-primary d-inline-block px-4 py-2 rounded-pill">
@@ -251,6 +338,20 @@ include 'header.php';
     </div>
     <?php endif; ?>
     
+    <!-- No Subjects Assigned Warning -->
+    <?php if (!$has_allowed_subjects): ?>
+    <div class="row mb-3">
+        <div class="col-12">
+            <div class="alert alert-info alert-dismissible fade show">
+                <i class="fas fa-info-circle me-2"></i>
+                <strong>Notice:</strong> You don't have any subjects assigned. 
+                Please contact the administrator to get subject access.
+                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+            </div>
+        </div>
+    </div>
+    <?php endif; ?>
+    
     <!-- Feature Cards -->
     <div class="row mb-4">
         <!-- 360° Students View Card -->
@@ -270,7 +371,11 @@ include 'header.php';
                                 <div class="mt-2">
                                     <span class="badge bg-warning bg-opacity-10 text-warning small">
                                         <i class="fas fa-eye me-1 fa-xs"></i>
-                                        All Students
+                                        <?php if ($has_allowed_subjects): ?>
+                                            Your Students
+                                        <?php else: ?>
+                                            No Access
+                                        <?php endif; ?>
                                     </span>
                                 </div>
                             </div>
@@ -283,7 +388,7 @@ include 'header.php';
                     </div>
                     <div class="card-footer bg-transparent border-top-0 pt-0">
                         <div class="d-flex justify-content-between align-items-center small text-muted">
-                            <span>View all students</span>
+                            <span><?php echo $has_allowed_subjects ? 'View all students' : 'No subject access'; ?></span>
                             <i class="fas fa-chevron-right fa-xs"></i>
                         </div>
                     </div>
@@ -308,7 +413,7 @@ include 'header.php';
                                 <div class="mt-2">
                                     <span class="badge bg-info bg-opacity-10 text-info small">
                                         <i class="fas fa-chart-bar me-1 fa-xs"></i>
-                                        Interactive Dashboard
+                                        <?php echo $has_allowed_subjects ? 'Interactive Dashboard' : 'No Access'; ?>
                                     </span>
                                 </div>
                             </div>
@@ -321,7 +426,7 @@ include 'header.php';
                     </div>
                     <div class="card-footer bg-transparent border-top-0 pt-0">
                         <div class="d-flex justify-content-between align-items-center small text-muted">
-                            <span>Click to explore</span>
+                            <span><?php echo $has_allowed_subjects ? 'Click to explore' : 'Contact admin'; ?></span>
                             <i class="fas fa-chevron-right fa-xs"></i>
                         </div>
                     </div>
@@ -329,47 +434,61 @@ include 'header.php';
             </a>
         </div>
         
-        <!-- Stats Cards -->
-        <div class="col-xl-2 col-md-4 mb-4">
-            <div class="card border-0 shadow h-100">
-                <div class="card-body text-center py-4">
-                    <div class="stat-icon bg-primary text-white rounded-circle d-inline-flex align-items-center justify-content-center mb-3" style="width: 60px; height: 60px;">
-                        <i class="fas fa-chalkboard-teacher fa-2x"></i>
+        <!-- Stats Cards (Only shown if has allowed subjects) -->
+        <?php if ($has_allowed_subjects): ?>
+            <div class="col-xl-2 col-md-4 mb-4">
+                <div class="card border-0 shadow h-100">
+                    <div class="card-body text-center py-4">
+                        <div class="stat-icon bg-primary text-white rounded-circle d-inline-flex align-items-center justify-content-center mb-3" style="width: 60px; height: 60px;">
+                            <i class="fas fa-chalkboard-teacher fa-2x"></i>
+                        </div>
+                        <h2 class="text-primary mb-1"><?php echo $total_sessions; ?></h2>
+                        <p class="text-muted mb-0">Total Sessions</p>
                     </div>
-                    <h2 class="text-primary mb-1"><?php echo $total_sessions; ?></h2>
-                    <p class="text-muted mb-0">Total Sessions</p>
                 </div>
             </div>
-        </div>
-        
-        <div class="col-xl-2 col-md-4 mb-4">
-            <div class="card border-0 shadow h-100">
-                <div class="card-body text-center py-4">
-                    <div class="stat-icon bg-success text-white rounded-circle d-inline-flex align-items-center justify-content-center mb-3" style="width: 60px; height: 60px;">
-                        <i class="fas fa-user-check fa-2x"></i>
+            
+            <div class="col-xl-2 col-md-4 mb-4">
+                <div class="card border-0 shadow h-100">
+                    <div class="card-body text-center py-4">
+                        <div class="stat-icon bg-success text-white rounded-circle d-inline-flex align-items-center justify-content-center mb-3" style="width: 60px; height: 60px;">
+                            <i class="fas fa-user-check fa-2x"></i>
+                        </div>
+                        <h2 class="text-success mb-1"><?php echo $total_attendance; ?></h2>
+                        <p class="text-muted mb-0">Total Records</p>
                     </div>
-                    <h2 class="text-success mb-1"><?php echo $total_attendance; ?></h2>
-                    <p class="text-muted mb-0">Total Records</p>
                 </div>
             </div>
-        </div>
-        
-        <div class="col-xl-2 col-md-4 mb-4">
-            <div class="card border-0 shadow h-100">
-                <div class="card-body text-center py-4">
-                    <div class="stat-icon bg-warning text-white rounded-circle d-inline-flex align-items-center justify-content-center mb-3" style="width: 60px; height: 60px;">
-                        <i class="fas fa-play-circle fa-2x"></i>
+            
+            <div class="col-xl-2 col-md-4 mb-4">
+                <div class="card border-0 shadow h-100">
+                    <div class="card-body text-center py-4">
+                        <div class="stat-icon bg-warning text-white rounded-circle d-inline-flex align-items-center justify-content-center mb-3" style="width: 60px; height: 60px;">
+                            <i class="fas fa-play-circle fa-2x"></i>
+                        </div>
+                        <h2 class="text-warning mb-1"><?php echo $active_count; ?></h2>
+                        <p class="text-muted mb-0">Active Sessions</p>
                     </div>
-                    <h2 class="text-warning mb-1"><?php echo $active_count; ?></h2>
-                    <p class="text-muted mb-0">Active Sessions</p>
                 </div>
             </div>
-        </div>
+        <?php else: ?>
+            <!-- Empty state cards when no subjects -->
+            <div class="col-xl-6 col-md-12 mb-4">
+                <div class="card border-0 shadow h-100 bg-light">
+                    <div class="card-body text-center py-5">
+                        <i class="fas fa-book fa-3x text-muted mb-3"></i>
+                        <h4 class="text-muted">No Subjects Assigned</h4>
+                        <p class="text-muted mb-0">Please contact administrator to get subject access</p>
+                    </div>
+                </div>
+            </div>
+        <?php endif; ?>
     </div>
 
     <!-- Main Content Area -->
     <div class="row">
-        <!-- Session Form -->
+        <!-- Session Form (Only shown if has allowed subjects) -->
+        <?php if ($has_allowed_subjects): ?>
         <div class="col-lg-8 mb-4">
             <div class="card shadow border-0">
                 <div class="card-header bg-primary text-white">
@@ -384,18 +503,18 @@ include 'header.php';
                                 <select class="form-select" name="subject_id" required id="subjectSelect">
                                     <option value="" disabled selected>Select a subject</option>
                                     <?php 
-                                    // Reset pointer and fetch subjects
-                                    if ($subjects_result && mysqli_num_rows($subjects_result) > 0) {
-                                        mysqli_data_seek($subjects_result, 0);
-                                        while ($subject = mysqli_fetch_assoc($subjects_result)): 
+                                    if (!empty($subjects_data)):
+                                        foreach ($subjects_data as $subject): 
                                     ?>
                                     <option value="<?php echo $subject['subject_id']; ?>">
                                         <?php echo htmlspecialchars($subject['subject_code'] . ' - ' . $subject['subject_name']); ?>
                                     </option>
                                     <?php 
-                                        endwhile;
-                                    }
+                                        endforeach;
+                                    else: 
                                     ?>
+                                    <option value="" disabled>No subjects available</option>
+                                    <?php endif; ?>
                                 </select>
                                 <small class="text-muted">Choose the subject for this session</small>
                             </div>
@@ -505,7 +624,7 @@ include 'header.php';
             </div>
         </div>
         
-        <!-- Recent Sessions -->
+        <!-- Recent Sessions (Only shown if has allowed subjects) -->
         <div class="col-lg-4">
             <div class="card shadow border-0 h-100">
                 <div class="card-header bg-info text-white">
@@ -513,11 +632,10 @@ include 'header.php';
                     <p class="mb-0 opacity-75">Your latest attendance sessions</p>
                 </div>
                 <div class="card-body" style="max-height: 400px; overflow-y: auto;">
-                    <?php if ($recent_sessions_result && mysqli_num_rows($recent_sessions_result) > 0): ?>
+                    <?php if (!empty($recent_sessions_data)): ?>
                         <div class="recent-sessions">
                             <?php 
-                            mysqli_data_seek($recent_sessions_result, 0); // Reset pointer
-                            while ($session = mysqli_fetch_assoc($recent_sessions_result)): 
+                            foreach ($recent_sessions_data as $session): 
                                 $status_class = $session['is_active'] ? 'border-start border-success' : 'border-start border-secondary';
                                 $status_text = $session['is_active'] ? 'Active' : 'Ended';
                                 $status_bg = $session['is_active'] ? 'success' : 'secondary';
@@ -605,7 +723,7 @@ include 'header.php';
                                     </div>
                                 </div>
                             </div>
-                            <?php endwhile; ?>
+                            <?php endforeach; ?>
                         </div>
                     <?php else: ?>
                         <div class="text-center py-4">
@@ -615,7 +733,7 @@ include 'header.php';
                         </div>
                     <?php endif; ?>
                     
-                    <?php if ($recent_sessions_result && mysqli_num_rows($recent_sessions_result) > 0): ?>
+                    <?php if (!empty($recent_sessions_data)): ?>
                         <div class="text-center mt-3">
                             <a href="manage_sessions.php" class="btn btn-outline-info btn-sm">
                                 <i class="fas fa-list me-1"></i> View All Sessions
@@ -630,6 +748,26 @@ include 'header.php';
                 </div>
             </div>
         </div>
+        <?php else: ?>
+        <!-- Empty state when no subjects assigned -->
+        <div class="col-12">
+            <div class="card shadow border-0">
+                <div class="card-body text-center py-5">
+                    <i class="fas fa-book-open fa-4x text-muted mb-4"></i>
+                    <h3 class="text-muted mb-3">No Subjects Assigned</h3>
+                    <p class="text-muted mb-4">You don't have access to any subjects yet. Please contact the administrator to get subject access.</p>
+                    <div class="d-flex justify-content-center gap-3">
+                        <a href="logout.php" class="btn btn-outline-primary">
+                            <i class="fas fa-sign-out-alt me-2"></i> Logout
+                        </a>
+                        <a href="contact_admin.php" class="btn btn-primary">
+                            <i class="fas fa-envelope me-2"></i> Contact Admin
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <?php endif; ?>
     </div>
 </div>
 
@@ -666,6 +804,8 @@ document.addEventListener('DOMContentLoaded', function() {
     
     // Function to toggle lab type visibility
     function toggleLabType() {
+        if (!classTypeSelect || !labTypeSection || !normalTypeSection) return;
+        
         const selectedClassType = classTypeSelect.value;
         
         if (selectedClassType === 'Lab') {
