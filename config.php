@@ -11,7 +11,7 @@ ini_set('log_errors', 1);
 // NEVER PUT REAL PASSWORDS HERE
 $host = $_ENV['DB_HOST'] ?? 'mysql-3a56a39e-vaseemlaptop-5078.e.aivencloud.com';
 $user = $_ENV['DB_USER'] ?? 'avnadmin';
-$pass = $_ENV['DB_PASSWORD'] ?? ''; // USE ENVIRONMENT VARIABLE
+$pass = $_ENV['DB_PASSWORD'] ?? 'AVNS_rMHOMFGZyD5kLjgzXlt'; // USE ENVIRONMENT VARIABLE
 $name = $_ENV['DB_NAME'] ?? 'defaultdb';
 $port = $_ENV['DB_PORT'] ?? 26600;
 
