@@ -55,6 +55,8 @@ if (ob_get_length() > 0 && !headers_sent()) {
 // ==================== Database operations with prepared statements ====================
 $student = null;
 $attendance_result = null;
+$total_sessions = 0;
+$attendance_stats = [];
 
 // Get student details - USING PREPARED STATEMENTS
 if ($conn) {
@@ -83,6 +85,21 @@ if ($conn) {
             $attendance_result = mysqli_stmt_get_result($stmt2);
             mysqli_stmt_close($stmt2);
         }
+        
+        // Get total sessions count for attendance percentage
+        $total_sessions_query = "SELECT COUNT(*) as total_sessions FROM sessions 
+                                WHERE subject_id IN (
+                                    SELECT subject_id FROM student_subjects WHERE student_id = ?
+                                )";
+        $stmt3 = mysqli_prepare($conn, $total_sessions_query);
+        if ($stmt3) {
+            mysqli_stmt_bind_param($stmt3, "s", $student_id);
+            mysqli_stmt_execute($stmt3);
+            $result3 = mysqli_stmt_get_result($stmt3);
+            $total_sessions_row = mysqli_fetch_assoc($result3);
+            $total_sessions = $total_sessions_row['total_sessions'] ?? 0;
+            mysqli_stmt_close($stmt3);
+        }
     }
 }
 
@@ -96,6 +113,70 @@ if (empty($student['gender'])) {
     exit;
 }
 
+// ==================== Calculate Attendance Statistics ====================
+$total_attendance = 0;
+if ($attendance_result) {
+    $total_attendance = mysqli_num_rows($attendance_result);
+}
+
+// Calculate attendance percentage
+$attendance_percentage = 0;
+if ($total_sessions > 0) {
+    $attendance_percentage = round(($total_attendance / $total_sessions) * 100, 1);
+}
+
+// Determine attendance status
+$attendance_status = "No Data";
+$attendance_class = "secondary";
+if ($total_sessions > 0) {
+    if ($attendance_percentage >= 85) {
+        $attendance_status = "Excellent";
+        $attendance_class = "success";
+    } elseif ($attendance_percentage >= 75) {
+        $attendance_status = "Good";
+        $attendance_class = "primary";
+    } elseif ($attendance_percentage >= 60) {
+        $attendance_status = "Average";
+        $attendance_class = "warning";
+    } elseif ($attendance_percentage >= 40) {
+        $attendance_status = "Poor";
+        $attendance_class = "danger";
+    } else {
+        $attendance_status = "Very Poor";
+        $attendance_class = "dark";
+    }
+}
+
+// Calculate classes needed for 75% attendance
+$classes_needed = 0;
+if ($total_sessions > 0 && $attendance_percentage < 75) {
+    $target_attendance = ceil($total_sessions * 0.75);
+    $classes_needed = max(0, $target_attendance - $total_attendance);
+}
+
+// ==================== Format Student ID Display ====================
+// Extract ID number and year from database
+$id_number = $student['id_number'] ?? $student_id;
+$year_field = $student['year'] ?? '';
+
+// Format year as E2 if year has 2 as input
+$year_display = "";
+if (!empty($year_field)) {
+    // If year is like "2" display as "E2"
+    if ($year_field == '2') {
+        $year_display = "E2";
+    } 
+    // If year is 4-digit like 2024, take last 2 digits
+    elseif (strlen($year_field) == 4) {
+        $last_two = substr($year_field, -2);
+        $year_display = "E" . $last_two;
+    }
+    // For any other format
+    else {
+        $year_display = "E" . $year_field;
+    }
+}
+
 // Get QR code path
 $qr_path = "qrcodes/student_" . $student_id . ".png";
 
@@ -106,12 +187,6 @@ include 'header.php';
 $gender = strtolower($student['gender'] ?? 'male');
 $avatar_class = ($gender === 'female') ? 'female-avatar' : 'male-avatar';
 $default_avatar = ($gender === 'female') ? 'default_female.png' : 'default.png';
-
-// Count total attendance
-$total_attendance = 0;
-if ($attendance_result) {
-    $total_attendance = mysqli_num_rows($attendance_result);
-}
 ?>
 
 <style>
@@ -210,7 +285,7 @@ if ($attendance_result) {
         border-color: #495057 !important;
     }
     
-    /* Waving Avatar Animation */
+    /* Avatar Animation - NO SHAKING */
     .waving-avatar {
         width: 120px;
         height: 120px;
@@ -218,8 +293,7 @@ if ($attendance_result) {
         background-repeat: no-repeat;
         background-position: center;
         margin: 0 auto;
-        animation: wave 2.5s infinite;
-        transform-origin: 70% 70%;
+        /* No animation to prevent shaking */
     }
     
     .female-avatar {
@@ -228,17 +302,6 @@ if ($attendance_result) {
     
     .male-avatar {
         background-image: url('assets/images/male_avatar.gif');
-    }
-    
-    @keyframes wave {
-        0% { transform: rotate(0deg); }
-        10% { transform: rotate(14deg); }
-        20% { transform: rotate(-8deg); }
-        30% { transform: rotate(14deg); }
-        40% { transform: rotate(-4deg); }
-        50% { transform: rotate(10deg); }
-        60% { transform: rotate(0deg); }
-        100% { transform: rotate(0deg); }
     }
     
     /* Profile Picture Styling */
@@ -322,10 +385,22 @@ if ($attendance_result) {
         background: linear-gradient(135deg, #ffc107 0%, #fd7e14 100%);
     }
     
+    .stat-card-3 {
+        background: linear-gradient(135deg, #6f42c1 0%, #e83e8c 100%);
+    }
+    
     .stat-number {
         font-size: 2.5rem;
         font-weight: bold;
         margin-bottom: 5px;
+    }
+    
+    .attendance-status-badge {
+        font-size: 0.9rem;
+        padding: 5px 15px;
+        border-radius: 20px;
+        margin-top: 10px;
+        display: inline-block;
     }
     
     /* QR Code Download Button */
@@ -367,6 +442,19 @@ if ($attendance_result) {
     
     .recent-attendance-scroll::-webkit-scrollbar-thumb:hover {
         background: #555;
+    }
+    
+    /* Progress Bar */
+    .attendance-progress {
+        height: 20px;
+        border-radius: 10px;
+        margin: 10px 0;
+    }
+    
+    .progress-percentage {
+        font-size: 0.9rem;
+        font-weight: bold;
+        margin-top: 5px;
     }
 </style>
 
@@ -415,7 +503,15 @@ if ($attendance_result) {
                 
                 <h5 class="card-title"><?php echo htmlspecialchars($student['student_name'] ?? 'Student'); ?></h5>
                 <p class="card-text text-muted">
-                    <i class="fas fa-fingerprint me-1"></i> ID: <?php echo htmlspecialchars($student_id); ?><br>
+                    <!-- Display student_id and id_number correctly -->
+                    <i class="fas fa-id-card me-1"></i> Student ID: <?php echo htmlspecialchars($student_id); ?><br>
+                    <i class="fas fa-hashtag me-1"></i> ID Number: <?php echo htmlspecialchars($id_number); ?><br>
+                    
+                    <!-- Display year as E2 format -->
+                    <?php if (!empty($year_display)): ?>
+                    <i class="fas fa-calendar-alt me-1"></i> Year: <?php echo htmlspecialchars($year_display); ?><br>
+                    <?php endif; ?>
+                    
                     <i class="fas fa-envelope me-1"></i> <?php echo htmlspecialchars($student['student_email'] ?? 'N/A'); ?><br>
                     <i class="fas fa-users me-1"></i> Section <?php echo htmlspecialchars($student['section'] ?? 'N/A'); ?><br>
                     <i class="fas fa-building me-1"></i> <?php echo htmlspecialchars($student['student_department'] ?? 'N/A'); ?><br>
@@ -459,20 +555,81 @@ if ($attendance_result) {
     <div class="col-md-8">
         <!-- Quick Stats Row -->
         <div class="row mb-4">
-            <div class="col-md-6 mb-3">
+            <div class="col-md-4 mb-3">
                 <div class="stat-card stat-card-1">
                     <div class="stat-number">
                         <i class="fas fa-calendar-check"></i> <?php echo $total_attendance; ?>
                     </div>
-                    <h6 class="mb-0">Total Classes Attended</h6>
+                    <h6 class="mb-0">Classes Attended</h6>
+                    <small>Out of <?php echo $total_sessions; ?> total sessions</small>
                 </div>
             </div>
-            <div class="col-md-6 mb-3">
+            <div class="col-md-4 mb-3">
                 <div class="stat-card stat-card-2">
+                    <div class="stat-number">
+                        <i class="fas fa-percentage"></i> <?php echo $attendance_percentage; ?>%
+                    </div>
+                    <h6 class="mb-0">Attendance %</h6>
+                    <span class="badge bg-<?php echo $attendance_class; ?> attendance-status-badge">
+                        <?php echo $attendance_status; ?>
+                    </span>
+                </div>
+            </div>
+            <div class="col-md-4 mb-3">
+                <div class="stat-card stat-card-3">
                     <div class="stat-number">
                         <i class="fas fa-clock"></i> <span id="current-time"><?php echo date('h:i A'); ?></span>
                     </div>
                     <h6 class="mb-0">Current Time</h6>
+                    <small><?php echo date('l, F j, Y'); ?></small>
+                </div>
+            </div>
+        </div>
+
+        <!-- Attendance Progress Section -->
+        <div class="card shadow-lg border-0 mb-4">
+            <div class="card-header bg-info text-white">
+                <h5 class="mb-0"><i class="fas fa-chart-line me-2"></i>Attendance Progress</h5>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-6">
+                        <h6>Current Status: <span class="badge bg-<?php echo $attendance_class; ?>"><?php echo $attendance_status; ?></span></h6>
+                        <div class="progress attendance-progress">
+                            <div class="progress-bar bg-<?php echo $attendance_class; ?>" 
+                                 role="progressbar" 
+                                 style="width: <?php echo min($attendance_percentage, 100); ?>%"
+                                 aria-valuenow="<?php echo $attendance_percentage; ?>" 
+                                 aria-valuemin="0" 
+                                 aria-valuemax="100">
+                            </div>
+                        </div>
+                        <div class="progress-percentage text-center">
+                            <?php echo $attendance_percentage; ?>% (<?php echo $total_attendance; ?>/<?php echo $total_sessions; ?>)
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <h6>Target: 75% Attendance</h6>
+                        <?php if ($attendance_percentage < 75 && $total_sessions > 0): ?>
+                            <div class="alert alert-warning">
+                                <i class="fas fa-exclamation-triangle me-2"></i>
+                                <strong>Need <?php echo $classes_needed; ?> more classes</strong> to reach 75% attendance
+                            </div>
+                            <p class="small text-muted">
+                                Attend the next <?php echo $classes_needed; ?> classes regularly to improve your attendance percentage.
+                            </p>
+                        <?php elseif ($attendance_percentage >= 75): ?>
+                            <div class="alert alert-success">
+                                <i class="fas fa-check-circle me-2"></i>
+                                <strong>Congratulations!</strong> You have already achieved the 75% attendance target.
+                            </div>
+                        <?php else: ?>
+                            <div class="alert alert-secondary">
+                                <i class="fas fa-info-circle me-2"></i>
+                                Attendance data is being calculated. Keep attending classes regularly.
+                            </div>
+                        <?php endif; ?>
+                    </div>
                 </div>
             </div>
         </div>
