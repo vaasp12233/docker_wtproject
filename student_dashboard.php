@@ -86,50 +86,202 @@ if ($conn) {
     }
 }
 
+// ==================== CHECK IF GENDER IS SET ====================
+// If gender is not set, redirect to gender question page
+if (empty($student['gender'])) {
+    if (ob_get_length() > 0) {
+        ob_end_clean();
+    }
+    header('Location: set_gender.php');
+    exit;
+}
+
 // Get QR code path
 $qr_path = "qrcodes/student_" . $student_id . ".png";
 
 $page_title = "Student Dashboard";
 include 'header.php';
+
+// Determine gender and set avatar
+$gender = strtolower($student['gender'] ?? 'male');
+$avatar_class = ($gender === 'female') ? 'female-avatar' : 'male-avatar';
+$default_avatar = ($gender === 'female') ? 'default_female.png' : 'default.png';
+
+// Count total attendance
+$total_attendance = 0;
+if ($attendance_result) {
+    $total_attendance = mysqli_num_rows($attendance_result);
+}
 ?>
 
-<!-- Force QR code to use light theme always -->
 <style>
-    /* Override dark mode for QR code specifically */
-    #qrcode, 
-    #qrcode canvas,
-    .qrcode-container {
-        background-color: white !important;
-        padding: 15px;
-        border-radius: 8px;
-        border: 2px solid #dee2e6;
+    /* Mobile Responsive Styles */
+    @media (max-width: 768px) {
+        .card {
+            margin-bottom: 15px;
+        }
+        
+        .waving-avatar {
+            width: 100px !important;
+            height: 100px !important;
+        }
+        
+        .profile-img {
+            width: 120px !important;
+            height: 120px !important;
+        }
+        
+        .timetable-card {
+            padding: 15px !important;
+        }
+        
+        .timetable-btn {
+            padding: 8px 15px !important;
+            font-size: 0.9rem !important;
+        }
+        
+        .qr-container {
+            width: 180px !important;
+            height: 180px !important;
+        }
+        
+        .table-responsive {
+            font-size: 0.85rem;
+        }
+        
+        .table th, .table td {
+            padding: 0.5rem !important;
+        }
+        
+        .stat-number {
+            font-size: 2rem !important;
+        }
     }
     
-    /* Ensure QR code has proper contrast */
-    .dark-mode #qrcode,
-    .dark-mode #qrcode canvas,
-    [data-bs-theme="dark"] #qrcode,
-    [data-bs-theme="dark"] #qrcode canvas {
+    @media (max-width: 576px) {
+        .col-md-4, .col-md-8 {
+            padding-left: 10px !important;
+            padding-right: 10px !important;
+        }
+        
+        .waving-avatar {
+            width: 80px !important;
+            height: 80px !important;
+        }
+        
+        .profile-img {
+            width: 100px !important;
+            height: 100px !important;
+        }
+        
+        .btn-lg {
+            padding: 0.5rem 1rem !important;
+            font-size: 0.9rem !important;
+        }
+        
+        .card-header h5 {
+            font-size: 1.1rem !important;
+        }
+        
+        .card-body h5 {
+            font-size: 1.2rem !important;
+        }
+        
+        .qr-container {
+            width: 150px !important;
+            height: 150px !important;
+        }
+    }
+
+    /* QR Code Container - Always white background */
+    .qr-container {
+        background-color: white !important;
+        padding: 10px;
+        border-radius: 8px;
+        border: 2px solid #dee2e6;
+        display: inline-block;
+        margin: 0 auto 15px auto;
+    }
+    
+    /* Force QR code to be visible in dark mode */
+    [data-bs-theme="dark"] .qr-container,
+    .dark-mode .qr-container {
         background-color: white !important;
         border-color: #495057 !important;
     }
     
-    /* Make sure the card background doesn't affect QR code */
-    .card .qrcode-wrapper {
-        background-color: white !important;
+    /* Waving Avatar Animation */
+    .waving-avatar {
+        width: 120px;
+        height: 120px;
+        background-size: contain;
+        background-repeat: no-repeat;
+        background-position: center;
+        margin: 0 auto;
+        animation: wave 2.5s infinite;
+        transform-origin: 70% 70%;
     }
     
-    /* Timetable Section Styles */
-    .timetable-section {
-        margin-bottom: 20px;
+    .female-avatar {
+        background-image: url('assets/images/female_avatar.gif');
     }
     
+    .male-avatar {
+        background-image: url('assets/images/male_avatar.gif');
+    }
+    
+    @keyframes wave {
+        0% { transform: rotate(0deg); }
+        10% { transform: rotate(14deg); }
+        20% { transform: rotate(-8deg); }
+        30% { transform: rotate(14deg); }
+        40% { transform: rotate(-4deg); }
+        50% { transform: rotate(10deg); }
+        60% { transform: rotate(0deg); }
+        100% { transform: rotate(0deg); }
+    }
+    
+    /* Profile Picture Styling */
+    .profile-img {
+        width: 150px;
+        height: 150px;
+        object-fit: cover;
+        border: 4px solid #fff;
+        box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+        transition: all 0.3s ease;
+    }
+    
+    .profile-img:hover {
+        transform: scale(1.05);
+        box-shadow: 0 6px 20px rgba(0,0,0,0.15);
+    }
+    
+    /* Gender Badge */
+    .gender-badge {
+        font-size: 0.8rem;
+        padding: 3px 10px;
+        border-radius: 15px;
+        margin-left: 5px;
+    }
+    
+    .gender-male {
+        background-color: #007bff;
+        color: white;
+    }
+    
+    .gender-female {
+        background-color: #e83e8c;
+        color: white;
+    }
+    
+    /* Timetable Section */
     .timetable-card {
         background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
         color: white;
         border-radius: 10px;
         padding: 20px;
         margin-bottom: 20px;
+        box-shadow: 0 4px 15px rgba(102, 126, 234, 0.2);
     }
     
     .timetable-btn {
@@ -140,6 +292,8 @@ include 'header.php';
         border-radius: 8px;
         font-weight: 500;
         transition: all 0.3s ease;
+        text-decoration: none;
+        display: inline-block;
     }
     
     .timetable-btn:hover {
@@ -149,41 +303,124 @@ include 'header.php';
         color: #764ba2;
         text-decoration: none;
     }
+    
+    /* Stats Cards */
+    .stat-card {
+        border-radius: 10px;
+        padding: 15px;
+        margin-bottom: 15px;
+        color: white;
+        text-align: center;
+        box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+    }
+    
+    .stat-card-1 {
+        background: linear-gradient(135deg, #28a745 0%, #20c997 100%);
+    }
+    
+    .stat-card-2 {
+        background: linear-gradient(135deg, #ffc107 0%, #fd7e14 100%);
+    }
+    
+    .stat-number {
+        font-size: 2.5rem;
+        font-weight: bold;
+        margin-bottom: 5px;
+    }
+    
+    /* QR Code Download Button */
+    .qr-download-btn {
+        background: linear-gradient(45deg, #28a745, #20c997);
+        border: none;
+        transition: all 0.3s ease;
+    }
+    
+    .qr-download-btn:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 15px rgba(40, 167, 69, 0.3);
+    }
+    
+    /* Attendance Table */
+    .attendance-table tr:hover {
+        background-color: rgba(0, 123, 255, 0.05);
+    }
+    
+    /* Custom Scrollbar */
+    .recent-attendance-scroll {
+        max-height: 400px;
+        overflow-y: auto;
+    }
+    
+    .recent-attendance-scroll::-webkit-scrollbar {
+        width: 6px;
+    }
+    
+    .recent-attendance-scroll::-webkit-scrollbar-track {
+        background: #f1f1f1;
+        border-radius: 10px;
+    }
+    
+    .recent-attendance-scroll::-webkit-scrollbar-thumb {
+        background: #888;
+        border-radius: 10px;
+    }
+    
+    .recent-attendance-scroll::-webkit-scrollbar-thumb:hover {
+        background: #555;
+    }
 </style>
 
 <div class="row">
     <!-- Left Column: Profile & QR Code -->
     <div class="col-md-4 mb-4">
+        <!-- Welcome Avatar with Animation -->
+        <div class="card shadow-lg border-0 mb-4">
+            <div class="card-body text-center">
+                <div class="waving-avatar <?php echo $avatar_class; ?> mb-3"></div>
+                <h4 class="text-primary">
+                    Hi, <?php 
+                        $name_parts = explode(' ', $student['student_name'] ?? 'Student');
+                        echo htmlspecialchars($name_parts[0]); 
+                    ?>!
+                    <span class="gender-badge gender-<?php echo $gender; ?>">
+                        <i class="fas fa-<?php echo ($gender === 'female') ? 'venus' : 'mars'; ?>"></i>
+                        <?php echo ucfirst($gender); ?>
+                    </span>
+                </h4>
+                <p class="text-muted mb-0">Welcome to your smart attendance dashboard</p>
+            </div>
+        </div>
+
         <!-- Profile Card -->
         <div class="card shadow-lg border-0">
             <div class="card-header bg-primary text-white">
                 <h5 class="mb-0"><i class="fas fa-user me-2"></i>My Profile</h5>
             </div>
             <div class="card-body text-center">
-                <!-- Profile Picture - FIXED: Always use default.png -->
+                <!-- Profile Picture - NO EDIT BUTTON -->
                 <div class="mb-3">
                     <?php
-                    // FIXED: Always use default.png regardless of database
-                    $profile_pic = 'uploads/profiles/default.png';
+                    // Use gender-specific default avatar
+                    $profile_pic = 'uploads/profiles/' . $default_avatar;
+                    // Check if custom profile exists
+                    $custom_pic = 'uploads/profiles/student_' . $student_id . '.jpg';
+                    if (file_exists($custom_pic)) {
+                        $profile_pic = $custom_pic;
+                    }
                     ?>
                     <img src="<?php echo htmlspecialchars($profile_pic); ?>" 
-                         class="rounded-circle border" 
-                         style="width: 150px; height: 150px; object-fit: cover;"
+                         class="rounded-circle profile-img border" 
                          alt="Profile Picture">
-                    <div class="mt-2">
-                        <a href="student_profile.php" class="btn btn-sm btn-outline-primary">
-                            <i class="fas fa-camera me-1"></i> Change Photo
-                        </a>
-                    </div>
                 </div>
                 
                 <h5 class="card-title"><?php echo htmlspecialchars($student['student_name'] ?? 'Student'); ?></h5>
                 <p class="card-text text-muted">
-                    <i class="fas fa-fingerprint me-1"></i> Student ID: <?php echo htmlspecialchars($student_id); ?><br>
+                    <i class="fas fa-fingerprint me-1"></i> ID: <?php echo htmlspecialchars($student_id); ?><br>
                     <i class="fas fa-envelope me-1"></i> <?php echo htmlspecialchars($student['student_email'] ?? 'N/A'); ?><br>
-                    <i class="fas fa-id-card me-1"></i> ID: <?php echo htmlspecialchars($student['id_number'] ?? 'N/A'); ?><br>
                     <i class="fas fa-users me-1"></i> Section <?php echo htmlspecialchars($student['section'] ?? 'N/A'); ?><br>
-                    <i class="fas fa-building me-1"></i> <?php echo htmlspecialchars($student['student_department'] ?? 'N/A'); ?>
+                    <i class="fas fa-building me-1"></i> <?php echo htmlspecialchars($student['student_department'] ?? 'N/A'); ?><br>
+                    <i class="fas fa-<?php echo ($gender === 'female') ? 'venus' : 'mars'; ?> me-1"></i>
+                    <?php echo ucfirst(htmlspecialchars($gender)); ?>
                 </p>
             </div>
         </div>
@@ -193,17 +430,18 @@ include 'header.php';
             <div class="card-header bg-success text-white">
                 <h5 class="mb-0"><i class="fas fa-qrcode me-2"></i>My QR Code</h5>
             </div>
-            <div class="card-body text-center qrcode-wrapper">
+            <div class="card-body text-center">
                 <?php if (!empty($student['qr_content'])): ?>
-                    <!-- Wrapper div for QR code with forced light theme -->
-                    <div class="qrcode-container d-inline-block">
+                    <!-- Normal QR Code Container -->
+                    <div class="qr-container">
                         <div id="qrcode"></div>
                     </div>
                     <p class="mt-2 small text-muted">
-                        Scan this QR code during class to mark attendance
+                        <i class="fas fa-info-circle me-1"></i>
+                        Show this QR code during class to mark attendance
                     </p>
                     <div class="d-grid gap-2">
-                        <button onclick="downloadQR()" class="btn btn-sm btn-success">
+                        <button onclick="downloadQR()" class="btn qr-download-btn">
                             <i class="fas fa-download me-1"></i> Download QR Code
                         </button>
                     </div>
@@ -219,26 +457,27 @@ include 'header.php';
 
     <!-- Right Column: Dashboard Content -->
     <div class="col-md-8">
-        <!-- Welcome Card -->
-        <div class="card shadow-lg border-0 mb-4">
-            <div class="card-body">
-                <h4 class="text-primary">Welcome, <?php 
-                    $name_parts = explode(' ', $student['student_name'] ?? 'Student');
-                    echo htmlspecialchars($name_parts[0]); 
-                ?>!</h4>
-                <p class="lead mb-0">
-                    Use your QR code to mark attendance during class sessions.
-                    Your attendance records are shown below.
-                </p>
-                <div class="mt-2">
-                    <small class="text-muted">
-                        <i class="fas fa-fingerprint me-1"></i> Student ID: <?php echo htmlspecialchars($student_id); ?>
-                    </small>
+        <!-- Quick Stats Row -->
+        <div class="row mb-4">
+            <div class="col-md-6 mb-3">
+                <div class="stat-card stat-card-1">
+                    <div class="stat-number">
+                        <i class="fas fa-calendar-check"></i> <?php echo $total_attendance; ?>
+                    </div>
+                    <h6 class="mb-0">Total Classes Attended</h6>
+                </div>
+            </div>
+            <div class="col-md-6 mb-3">
+                <div class="stat-card stat-card-2">
+                    <div class="stat-number">
+                        <i class="fas fa-clock"></i> <span id="current-time"><?php echo date('h:i A'); ?></span>
+                    </div>
+                    <h6 class="mb-0">Current Time</h6>
                 </div>
             </div>
         </div>
 
-        <!-- TIMETABLE SECTION ADDED HERE -->
+        <!-- TIMETABLE SECTION -->
         <div class="timetable-section">
             <div class="timetable-card">
                 <div class="row align-items-center">
@@ -259,44 +498,72 @@ include 'header.php';
 
         <!-- Attendance History -->
         <div class="card shadow-lg border-0">
-            <div class="card-header bg-info text-white">
+            <div class="card-header bg-info text-white d-flex justify-content-between align-items-center">
                 <h5 class="mb-0"><i class="fas fa-history me-2"></i>Recent Attendance</h5>
+                <span class="badge bg-light text-dark">
+                    <i class="fas fa-user-check me-1"></i>
+                    <?php echo $total_attendance; ?> Records
+                </span>
             </div>
             <div class="card-body">
                 <?php if ($attendance_result && mysqli_num_rows($attendance_result) > 0): ?>
-                    <div class="table-responsive">
-                        <table class="table table-hover">
-                            <thead>
-                                <tr>
-                                    <th>Date</th>
-                                    <th>Subject</th>
-                                    <th>Marked Time</th>
-                                    <th>Status</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                <?php while ($record = mysqli_fetch_assoc($attendance_result)): ?>
-                                <tr>
-                                    <td><?php echo date('d/m/Y', strtotime($record['marked_at'])); ?></td>
-                                    <td><?php echo htmlspecialchars($record['subject_code']); ?></td>
-                                    <td><?php echo date('h:i A', strtotime($record['marked_at'])); ?></td>
-                                    <td><span class="badge bg-success">Present</span></td>
-                                </tr>
-                                <?php endwhile; ?>
-                            </tbody>
-                        </table>
-                        
-                        <div class="text-center mt-4">
-                            <a href="attendance_viewer.php" class="btn btn-primary btn-lg">
-                                <i class="fas fa-chart-line me-2"></i> View Complete Attendance Report
-                            </a>
+                    <div class="recent-attendance-scroll">
+                        <div class="table-responsive">
+                            <table class="table table-hover attendance-table">
+                                <thead>
+                                    <tr>
+                                        <th>Date</th>
+                                        <th>Subject</th>
+                                        <th>Time</th>
+                                        <th>Status</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <?php 
+                                    mysqli_data_seek($attendance_result, 0);
+                                    while ($record = mysqli_fetch_assoc($attendance_result)): 
+                                    ?>
+                                    <tr>
+                                        <td>
+                                            <i class="fas fa-calendar-day text-primary me-1"></i>
+                                            <?php echo date('d/m/Y', strtotime($record['marked_at'])); ?>
+                                        </td>
+                                        <td>
+                                            <strong><?php echo htmlspecialchars($record['subject_code']); ?></strong><br>
+                                            <small class="text-muted"><?php echo htmlspecialchars($record['subject_name']); ?></small>
+                                        </td>
+                                        <td>
+                                            <i class="fas fa-clock text-success me-1"></i>
+                                            <?php echo date('h:i A', strtotime($record['marked_at'])); ?>
+                                        </td>
+                                        <td>
+                                            <span class="badge bg-success">
+                                                <i class="fas fa-check-circle me-1"></i> Present
+                                            </span>
+                                        </td>
+                                    </tr>
+                                    <?php endwhile; ?>
+                                </tbody>
+                            </table>
                         </div>
                     </div>
+                    
+                    <div class="text-center mt-4">
+                        <a href="attendance_viewer.php" class="btn btn-primary btn-lg">
+                            <i class="fas fa-chart-line me-2"></i> View Complete Attendance Report
+                        </a>
+                    </div>
                 <?php else: ?>
-                    <div class="text-center py-4">
-                        <i class="fas fa-clipboard-list fa-3x text-muted mb-3"></i>
+                    <div class="text-center py-5">
+                        <div class="mb-3">
+                            <i class="fas fa-clipboard-list fa-4x text-muted"></i>
+                        </div>
                         <h5 class="text-muted">No attendance records yet</h5>
-                        <p class="text-muted">Your attendance will appear here after scanning QR codes in class</p>
+                        <p class="text-muted mb-4">Your attendance will appear here after scanning QR codes in class</p>
+                        <div class="alert alert-info">
+                            <i class="fas fa-info-circle me-2"></i>
+                            Show your QR code to faculty during class sessions to mark attendance
+                        </div>
                     </div>
                 <?php endif; ?>
             </div>
@@ -316,11 +583,11 @@ document.addEventListener('DOMContentLoaded', function() {
         qrElement.innerHTML = '';
     }
     
-    // Force QR code to use black on white regardless of theme
+    // Create normal QR code with black on white
     var qrcode = new QRCode(document.getElementById("qrcode"), {
         text: "<?php echo addslashes($student['qr_content']); ?>",
-        width: 200,
-        height: 200,
+        width: 180,
+        height: 180,
         colorDark: "#000000",  // Always black
         colorLight: "#ffffff", // Always white
         correctLevel: QRCode.CorrectLevel.H
@@ -349,13 +616,55 @@ function downloadQR() {
     
     // Create download link
     var link = document.createElement('a');
-    link.download = 'my_qr_code_<?php echo $student_id; ?>.png';
+    link.download = 'Attendance_QR_<?php echo $student_id; ?>.png';
     link.href = tempCanvas.toDataURL("image/png");
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+    
+    // Show success message
+    showAlert('success', 'QR code downloaded successfully!');
 }
 <?php endif; ?>
+
+function showAlert(type, message) {
+    const alertDiv = document.createElement('div');
+    alertDiv.className = `alert alert-${type} alert-dismissible fade show position-fixed top-0 end-0 m-3`;
+    alertDiv.style.zIndex = '1050';
+    alertDiv.style.maxWidth = '350px';
+    alertDiv.innerHTML = `
+        <div class="d-flex align-items-center">
+            <i class="fas fa-${type === 'success' ? 'check-circle' : 'info-circle'} fa-lg me-3"></i>
+            <div class="flex-grow-1">
+                ${message}
+            </div>
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        </div>
+    `;
+    document.body.appendChild(alertDiv);
+    
+    // Auto remove after 3 seconds
+    setTimeout(() => {
+        if (alertDiv.parentNode) {
+            const bsAlert = new bootstrap.Alert(alertDiv);
+            bsAlert.close();
+        }
+    }, 3000);
+}
+
+// Update current time every minute
+function updateCurrentTime() {
+    const now = new Date();
+    const timeString = now.toLocaleTimeString('en-IN', { 
+        hour: '2-digit', 
+        minute: '2-digit',
+        hour12: true 
+    });
+    document.getElementById('current-time').textContent = timeString;
+}
+
+// Update time every minute
+setInterval(updateCurrentTime, 60000);
 </script>
 
 <?php 
