@@ -1,4 +1,3 @@
-
 <?php
 // student_dashboard.php - Render + Aiven + GitHub Compatible
 
