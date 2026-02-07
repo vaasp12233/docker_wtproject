@@ -55,7 +55,7 @@ $session_info = mysqli_fetch_assoc($session_result);
 
 // Get all attendance records for this session
 $attendance_query = mysqli_prepare($conn,
-    "SELECT ar.student_id, s.student_name, ar.marked_at,
+    "SELECT ar.student_id, s.student_name, s.section, ar.marked_at,
             TIME_FORMAT(ar.marked_at, '%h:%i %p') as formatted_time
      FROM attendance_records ar
      LEFT JOIN students s ON ar.student_id = s.student_id
@@ -98,210 +98,472 @@ $attendance_percentage = $total_students > 0 ? round(($present_count / $total_st
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
+        :root {
+            --primary-color: #4361ee;
+            --secondary-color: #3a0ca3;
+            --success-color: #06d6a0;
+            --danger-color: #ef476f;
+            --warning-color: #ffd166;
+            --info-color: #118ab2;
+        }
+        
         body {
             background-color: #f8f9fa;
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
         }
+        
+        .main-container {
+            flex: 1;
+        }
+        
+        /* Header Styles */
+        .navbar-brand {
+            font-weight: 700;
+            font-size: 1.5rem;
+        }
+        
+        .nav-link {
+            font-weight: 500;
+            transition: all 0.3s;
+        }
+        
+        .nav-link:hover {
+            color: var(--primary-color) !important;
+            transform: translateY(-2px);
+        }
+        
+        .navbar {
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        }
+        
+        /* Footer Styles */
+        .footer {
+            background: linear-gradient(135deg, #2c3e50 0%, #34495e 100%);
+            color: white;
+            padding: 2rem 0;
+            margin-top: auto;
+        }
+        
+        .footer-links a {
+            color: #ecf0f1;
+            text-decoration: none;
+            transition: color 0.3s;
+        }
+        
+        .footer-links a:hover {
+            color: var(--primary-color);
+        }
+        
+        .social-icons a {
+            color: white;
+            font-size: 1.2rem;
+            margin: 0 10px;
+            transition: transform 0.3s;
+        }
+        
+        .social-icons a:hover {
+            transform: translateY(-3px);
+            color: var(--primary-color);
+        }
+        
+        /* Card Styles */
         .card {
             border: none;
             border-radius: 12px;
             box-shadow: 0 4px 12px rgba(0,0,0,0.08);
             margin-bottom: 20px;
+            transition: transform 0.3s;
         }
+        
+        .card:hover {
+            transform: translateY(-5px);
+        }
+        
         .card-header {
             border-radius: 12px 12px 0 0 !important;
             padding: 1.25rem 1.5rem;
+            font-weight: 600;
         }
+        
+        /* Table Styles */
+        .table-container {
+            background: white;
+            border-radius: 12px;
+            padding: 1.5rem;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+        }
+        
         .table th {
             border-top: none;
-            background-color: #f8f9fa;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
             font-weight: 600;
-            color: #495057;
+            padding: 1rem;
         }
+        
         .table td {
+            padding: 1rem;
             vertical-align: middle;
+            border-bottom: 1px solid #eee;
         }
-        .attendance-badge {
+        
+        .table tr:hover {
+            background-color: rgba(102, 126, 234, 0.05);
+        }
+        
+        .table tr:nth-child(even) {
+            background-color: #f8f9fa;
+        }
+        
+        .table tr:nth-child(even):hover {
+            background-color: rgba(102, 126, 234, 0.08);
+        }
+        
+        /* Badge Styles */
+        .badge-present {
+            background: linear-gradient(45deg, #06d6a0, #06b990);
             padding: 0.5rem 1rem;
             border-radius: 50px;
+            font-weight: 500;
         }
+        
+        .badge-absent {
+            background: linear-gradient(45deg, #ef476f, #e0345c);
+            padding: 0.5rem 1rem;
+            border-radius: 50px;
+            font-weight: 500;
+        }
+        
+        /* Statistics Cards */
         .stat-card {
-            transition: transform 0.2s;
-        }
-        .stat-card:hover {
-            transform: translateY(-5px);
-        }
-        .percentage-circle {
-            width: 80px;
-            height: 80px;
-            border-radius: 50%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-weight: bold;
-            font-size: 1.2rem;
-            margin: 0 auto;
-        }
-        .present-row {
-            background-color: #d4edda !important;
-        }
-        .sno-column {
-            width: 60px;
+            border: none;
+            border-radius: 12px;
+            padding: 1.5rem;
             text-align: center;
+            color: white;
+            min-height: 180px;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
         }
-        .action-buttons {
-            position: sticky;
-            top: 20px;
-            z-index: 1000;
+        
+        .stat-card-1 {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
         }
-        .export-btn {
+        
+        .stat-card-2 {
+            background: linear-gradient(135deg, #06d6a0 0%, #06b990 100%);
+        }
+        
+        .stat-card-3 {
+            background: linear-gradient(135deg, #ffd166 0%, #ffc043 100%);
+        }
+        
+        .stat-card-4 {
+            background: linear-gradient(135deg, #118ab2 0%, #0d7799 100%);
+        }
+        
+        .stat-number {
+            font-size: 2.5rem;
+            font-weight: 700;
+            margin-bottom: 0.5rem;
+        }
+        
+        /* Button Styles */
+        .btn-custom {
+            background: linear-gradient(45deg, #667eea, #764ba2);
+            border: none;
+            color: white;
+            padding: 0.6rem 1.5rem;
+            border-radius: 8px;
+            font-weight: 500;
             transition: all 0.3s;
         }
-        .export-btn:hover {
-            transform: scale(1.05);
+        
+        .btn-custom:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+            color: white;
+        }
+        
+        .btn-outline-custom {
+            border: 2px solid #667eea;
+            color: #667eea;
+            background: transparent;
+            padding: 0.6rem 1.5rem;
+            border-radius: 8px;
+            font-weight: 500;
+            transition: all 0.3s;
+        }
+        
+        .btn-outline-custom:hover {
+            background: linear-gradient(45deg, #667eea, #764ba2);
+            color: white;
+            transform: translateY(-2px);
+        }
+        
+        /* Search Box */
+        .search-box {
+            background: white;
+            padding: 1.5rem;
+            border-radius: 12px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+            margin-bottom: 1.5rem;
+        }
+        
+        /* Print Styles */
+        @media print {
+            .no-print {
+                display: none !important;
+            }
+            
+            .table th {
+                background: #f8f9fa !important;
+                color: black !important;
+                -webkit-print-color-adjust: exact;
+            }
+            
+            .badge-present, .badge-absent {
+                background: #f8f9fa !important;
+                color: black !important;
+                -webkit-print-color-adjust: exact;
+            }
+        }
+        
+        /* Scrollbar Styling */
+        .table-responsive::-webkit-scrollbar {
+            height: 8px;
+        }
+        
+        .table-responsive::-webkit-scrollbar-track {
+            background: #f1f1f1;
+            border-radius: 10px;
+        }
+        
+        .table-responsive::-webkit-scrollbar-thumb {
+            background: linear-gradient(45deg, #667eea, #764ba2);
+            border-radius: 10px;
+        }
+        
+        .table-responsive::-webkit-scrollbar-thumb:hover {
+            background: linear-gradient(45deg, #5a6fd8, #6a4190);
+        }
+        
+        /* Responsive Adjustments */
+        @media (max-width: 768px) {
+            .stat-number {
+                font-size: 2rem;
+            }
+            
+            .table th, .table td {
+                padding: 0.75rem;
+                font-size: 0.9rem;
+            }
+            
+            .navbar-brand {
+                font-size: 1.2rem;
+            }
         }
     </style>
 </head>
 <body>
-    <div class="container-fluid py-4">
-        <!-- Header -->
-        <div class="row mb-4">
-            <div class="col-12">
-                <div class="d-flex justify-content-between align-items-center mb-4">
-                    <div>
-                        <a href="faculty_scan.php?session_id=<?php echo $session_id; ?>" 
-                           class="btn btn-outline-secondary">
-                            <i class="fas fa-arrow-left me-2"></i> Back to Scanner
+    <!-- Header/Navigation -->
+    <nav class="navbar navbar-expand-lg navbar-dark">
+        <div class="container">
+            <a class="navbar-brand" href="faculty_dashboard.php">
+                <i class="fas fa-graduation-cap me-2"></i> Smart Attendance
+            </a>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <ul class="navbar-nav ms-auto">
+                    <li class="nav-item">
+                        <a class="nav-link" href="faculty_dashboard.php">
+                            <i class="fas fa-home me-1"></i> Dashboard
                         </a>
-                        <a href="faculty_dashboard.php" class="btn btn-outline-primary ms-2">
-                            <i class="fas fa-home me-2"></i> Dashboard
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link active" href="faculty_scan.php">
+                            <i class="fas fa-qrcode me-1"></i> Scanner
                         </a>
-                    </div>
-                    <h2 class="mb-0 text-primary">
-                        <i class="fas fa-list-check me-2"></i> Attendance Report
-                    </h2>
-                </div>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="faculty_sessions.php">
+                            <i class="fas fa-history me-1"></i> Sessions
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="faculty_profile.php">
+                            <i class="fas fa-user me-1"></i> Profile
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="logout.php">
+                            <i class="fas fa-sign-out-alt me-1"></i> Logout
+                        </a>
+                    </li>
+                </ul>
             </div>
         </div>
+    </nav>
 
-        <!-- Session Info -->
-        <div class="row mb-4">
-            <div class="col-12">
-                <div class="card border-primary">
-                    <div class="card-header bg-primary text-white">
-                        <h4 class="mb-0">
-                            <i class="fas fa-chalkboard-teacher me-2"></i>
-                            Session Information
-                        </h4>
+    <!-- Main Content -->
+    <div class="main-container">
+        <div class="container py-4">
+            <!-- Page Header -->
+            <div class="row mb-4">
+                <div class="col-12">
+                    <div class="d-flex justify-content-between align-items-center mb-4">
+                        <div>
+                            <a href="faculty_scan.php?session_id=<?php echo $session_id; ?>" 
+                               class="btn btn-outline-custom">
+                                <i class="fas fa-arrow-left me-2"></i> Back to Scanner
+                            </a>
+                        </div>
+                        <div class="text-end">
+                            <h1 class="text-primary mb-0">
+                                <i class="fas fa-list-check me-2"></i> Attendance Report
+                            </h1>
+                            <p class="text-muted mb-0">Session #<?php echo $session_id; ?></p>
+                        </div>
                     </div>
-                    <div class="card-body">
-                        <div class="row">
-                            <div class="col-md-3">
-                                <h6><i class="fas fa-book me-2"></i> Subject</h6>
-                                <p class="fw-bold fs-5"><?php echo htmlspecialchars($session_info['subject_code'] . ' - ' . $session_info['subject_name']); ?></p>
-                            </div>
-                            <div class="col-md-2">
-                                <h6><i class="fas fa-users me-2"></i> Section</h6>
-                                <p class="fw-bold fs-5">Section <?php echo htmlspecialchars($session_info['section_targeted']); ?></p>
-                            </div>
-                            <div class="col-md-2">
-                                <h6><i class="fas fa-chalkboard me-2"></i> Type</h6>
-                                <p class="fw-bold fs-5"><?php echo htmlspecialchars($session_info['class_type']); ?></p>
-                            </div>
-                            <div class="col-md-2">
-                                <h6><i class="fas fa-calendar me-2"></i> Date</h6>
-                                <p class="fw-bold fs-5">
-                                    <?php echo date('d M Y', strtotime($session_info['created_at'] ?? date('Y-m-d'))); ?>
-                                </p>
-                            </div>
-                            <div class="col-md-3">
-                                <h6><i class="fas fa-clock me-2"></i> Session ID</h6>
-                                <p class="fw-bold fs-5 text-primary">#<?php echo $session_id; ?></p>
+                </div>
+            </div>
+
+            <!-- Session Info -->
+            <div class="row mb-4">
+                <div class="col-12">
+                    <div class="card">
+                        <div class="card-header" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white;">
+                            <h4 class="mb-0">
+                                <i class="fas fa-chalkboard-teacher me-2"></i>
+                                Session Information
+                            </h4>
+                        </div>
+                        <div class="card-body">
+                            <div class="row">
+                                <div class="col-md-4 mb-3">
+                                    <h6><i class="fas fa-book me-2 text-primary"></i> Subject</h6>
+                                    <p class="fw-bold fs-5"><?php echo htmlspecialchars($session_info['subject_code'] . ' - ' . $session_info['subject_name']); ?></p>
+                                </div>
+                                <div class="col-md-2 mb-3">
+                                    <h6><i class="fas fa-users me-2 text-success"></i> Section</h6>
+                                    <p class="fw-bold fs-5">Section <?php echo htmlspecialchars($session_info['section_targeted']); ?></p>
+                                </div>
+                                <div class="col-md-2 mb-3">
+                                    <h6><i class="fas fa-chalkboard me-2 text-warning"></i> Type</h6>
+                                    <p class="fw-bold fs-5"><?php echo htmlspecialchars($session_info['class_type']); ?></p>
+                                </div>
+                                <div class="col-md-2 mb-3">
+                                    <h6><i class="fas fa-calendar me-2 text-info"></i> Date</h6>
+                                    <p class="fw-bold fs-5">
+                                        <?php echo date('d M Y', strtotime($session_info['created_at'] ?? date('Y-m-d'))); ?>
+                                    </p>
+                                </div>
+                                <div class="col-md-2 mb-3">
+                                    <h6><i class="fas fa-clock me-2 text-danger"></i> Time</h6>
+                                    <p class="fw-bold fs-5">
+                                        <?php 
+                                        if (!empty($session_info['start_time'])) {
+                                            echo date('h:i A', strtotime($session_info['start_time']));
+                                        } elseif (!empty($session_info['created_at'])) {
+                                            echo date('h:i A', strtotime($session_info['created_at']));
+                                        } else {
+                                            echo 'N/A';
+                                        }
+                                        ?>
+                                    </p>
+                                </div>
                             </div>
                         </div>
                     </div>
                 </div>
             </div>
-        </div>
 
-        <!-- Statistics Cards -->
-        <div class="row mb-4">
-            <div class="col-md-3">
-                <div class="card stat-card border-success">
-                    <div class="card-body text-center">
-                        <div class="percentage-circle bg-success text-white mb-3">
-                            <?php echo $attendance_percentage; ?>%
+            <!-- Statistics Cards -->
+            <div class="row mb-4">
+                <div class="col-md-3 mb-3">
+                    <div class="stat-card stat-card-1">
+                        <div class="stat-number"><?php echo $attendance_percentage; ?>%</div>
+                        <h5 class="mb-0">Attendance Rate</h5>
+                        <p class="mb-0 opacity-75">Percentage of present students</p>
+                    </div>
+                </div>
+                <div class="col-md-3 mb-3">
+                    <div class="stat-card stat-card-2">
+                        <div class="stat-number"><?php echo $present_count; ?></div>
+                        <h5 class="mb-0">Present</h5>
+                        <p class="mb-0 opacity-75">Students marked present</p>
+                    </div>
+                </div>
+                <div class="col-md-3 mb-3">
+                    <div class="stat-card stat-card-3">
+                        <div class="stat-number"><?php echo $absent_count; ?></div>
+                        <h5 class="mb-0">Absent</h5>
+                        <p class="mb-0 opacity-75">Students not marked</p>
+                    </div>
+                </div>
+                <div class="col-md-3 mb-3">
+                    <div class="stat-card stat-card-4">
+                        <div class="stat-number"><?php echo $total_students; ?></div>
+                        <h5 class="mb-0">Total</h5>
+                        <p class="mb-0 opacity-75">Students in section</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Search Box -->
+            <div class="search-box no-print">
+                <div class="row align-items-center">
+                    <div class="col-md-8">
+                        <div class="input-group input-group-lg">
+                            <span class="input-group-text bg-primary text-white">
+                                <i class="fas fa-search"></i>
+                            </span>
+                            <input type="text" id="searchBox" class="form-control" 
+                                   placeholder="Search by Student ID or Name...">
+                            <button class="btn btn-outline-secondary" type="button" id="clearSearch">
+                                <i class="fas fa-times"></i> Clear
+                            </button>
                         </div>
-                        <h5 class="card-title">Attendance</h5>
-                        <p class="card-text text-muted">Percentage</p>
+                    </div>
+                    <div class="col-md-4 text-end">
+                        <button onclick="window.print()" class="btn btn-outline-custom me-2">
+                            <i class="fas fa-print me-2"></i> Print
+                        </button>
+                        <a href="export_attendance.php?session_id=<?php echo $session_id; ?>" 
+                           class="btn btn-custom">
+                            <i class="fas fa-file-excel me-2"></i> Export Excel
+                        </a>
                     </div>
                 </div>
             </div>
-            <div class="col-md-3">
-                <div class="card stat-card border-info">
-                    <div class="card-body text-center">
-                        <h1 class="display-4 text-info mb-3"><?php echo $present_count; ?></h1>
-                        <h5 class="card-title">Present</h5>
-                        <p class="card-text text-muted">Students marked</p>
-                    </div>
-                </div>
-            </div>
-            <div class="col-md-3">
-                <div class="card stat-card border-warning">
-                    <div class="card-body text-center">
-                        <h1 class="display-4 text-warning mb-3"><?php echo $absent_count; ?></h1>
-                        <h5 class="card-title">Absent</h5>
-                        <p class="card-text text-muted">Not marked</p>
-                    </div>
-                </div>
-            </div>
-            <div class="col-md-3">
-                <div class="card stat-card border-secondary">
-                    <div class="card-body text-center">
-                        <h1 class="display-4 text-secondary mb-3"><?php echo $total_students; ?></h1>
-                        <h5 class="card-title">Total</h5>
-                        <p class="card-text text-muted">Students in section</p>
-                    </div>
-                </div>
-            </div>
-        </div>
 
-        <!-- Export Button -->
-        <div class="row mb-4">
-            <div class="col-12">
-                <div class="d-flex justify-content-end gap-2 action-buttons">
-                    <button onclick="window.print()" class="btn btn-outline-primary export-btn">
-                        <i class="fas fa-print me-2"></i> Print Report
-                    </button>
-                    <a href="export_attendance.php?session_id=<?php echo $session_id; ?>" 
-                       class="btn btn-success export-btn">
-                        <i class="fas fa-file-excel me-2"></i> Export to Excel
-                    </a>
-                </div>
-            </div>
-        </div>
-
-        <!-- Attendance Table -->
-        <div class="row">
-            <div class="col-12">
-                <div class="card">
-                    <div class="card-header bg-dark text-white">
-                        <h4 class="mb-0">
-                            <i class="fas fa-table me-2"></i>
-                            Attendance List (Ordered by Student ID)
+            <!-- Attendance Table -->
+            <div class="row">
+                <div class="col-12">
+                    <div class="table-container">
+                        <h4 class="mb-3">
+                            <i class="fas fa-table me-2 text-primary"></i>
+                            Student Attendance List (Ordered by Student ID)
                         </h4>
-                    </div>
-                    <div class="card-body">
+                        
                         <div class="table-responsive">
-                            <table class="table table-hover">
-                                <thead class="table-light">
+                            <table class="table table-hover" id="attendanceTable">
+                                <thead>
                                     <tr>
-                                        <th class="sno-column">S.No</th>
-                                        <th>Student ID</th>
-                                        <th>Student Name</th>
-                                        <th>Status</th>
-                                        <th>Time Marked</th>
-                                        <th>Actions</th>
+                                        <th class="text-center" style="width: 80px;">S.No</th>
+                                        <th style="min-width: 120px;">Student ID</th>
+                                        <th style="min-width: 200px;">Student Name</th>
+                                        <th style="min-width: 80px;">Section</th>
+                                        <th style="min-width: 100px;">Status</th>
+                                        <th style="min-width: 120px;">Time Marked</th>
+                                        <th class="no-print" style="min-width: 150px;">Action</th>
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -310,7 +572,7 @@ $attendance_percentage = $total_students > 0 ? round(($present_count / $total_st
                                     
                                     // Get all students in the section
                                     $all_students_query = mysqli_prepare($conn,
-                                        "SELECT student_id, student_name FROM students 
+                                        "SELECT student_id, student_name, section FROM students 
                                          WHERE section = ? 
                                          ORDER BY 
                                             CAST(SUBSTRING_INDEX(student_id, '-', -1) AS UNSIGNED),
@@ -332,19 +594,21 @@ $attendance_percentage = $total_students > 0 ? round(($present_count / $total_st
                                         mysqli_data_seek($all_students_result, 0);
                                         while ($student = mysqli_fetch_assoc($all_students_result)):
                                             $student_id = $student['student_id'];
+                                            $student_name = htmlspecialchars($student['student_name']);
                                             $is_present = isset($present_students[$student_id]);
                                     ?>
-                                    <tr class="<?php echo $is_present ? 'present-row' : ''; ?>">
+                                    <tr>
                                         <td class="text-center fw-bold"><?php echo $serial_number++; ?></td>
-                                        <td class="fw-bold"><?php echo htmlspecialchars($student_id); ?></td>
-                                        <td><?php echo htmlspecialchars($student['student_name']); ?></td>
+                                        <td class="fw-bold text-primary"><?php echo htmlspecialchars($student_id); ?></td>
+                                        <td><?php echo $student_name; ?></td>
+                                        <td class="fw-bold"><?php echo htmlspecialchars($student['section']); ?></td>
                                         <td>
                                             <?php if ($is_present): ?>
-                                            <span class="badge bg-success attendance-badge">
+                                            <span class="badge-present">
                                                 <i class="fas fa-check-circle me-1"></i> Present
                                             </span>
                                             <?php else: ?>
-                                            <span class="badge bg-danger attendance-badge">
+                                            <span class="badge-absent">
                                                 <i class="fas fa-times-circle me-1"></i> Absent
                                             </span>
                                             <?php endif; ?>
@@ -356,24 +620,24 @@ $attendance_percentage = $total_students > 0 ? round(($present_count / $total_st
                                                 <?php echo $present_students[$student_id]['formatted_time']; ?>
                                             </span>
                                             <?php else: ?>
-                                            <span class="text-muted">--:--</span>
+                                            <span class="text-muted fst-italic">--:--</span>
                                             <?php endif; ?>
                                         </td>
-                                        <td>
+                                        <td class="no-print">
                                             <?php if (!$is_present): ?>
                                             <form method="POST" action="faculty_scan.php" class="d-inline">
                                                 <input type="hidden" name="student_id" value="<?php echo $student_id; ?>">
                                                 <input type="hidden" name="session_id" value="<?php echo $session_id; ?>">
                                                 <button type="submit" name="mark_attendance" 
                                                         class="btn btn-sm btn-outline-success"
-                                                        onclick="return confirm('Mark <?php echo htmlspecialchars($student[\'student_name\']); ?> as present?')">
+                                                        onclick="return confirm('Mark <?php echo $student_name; ?> as present?')">
                                                     <i class="fas fa-user-check me-1"></i> Mark Present
                                                 </button>
                                             </form>
                                             <?php else: ?>
-                                            <button class="btn btn-sm btn-outline-secondary" disabled>
-                                                <i class="fas fa-check me-1"></i> Already Marked
-                                            </button>
+                                            <span class="text-success">
+                                                <i class="fas fa-check-circle me-1"></i> Attendance Marked
+                                            </span>
                                             <?php endif; ?>
                                         </td>
                                     </tr>
@@ -381,7 +645,7 @@ $attendance_percentage = $total_students > 0 ? round(($present_count / $total_st
                                         endwhile;
                                     else: ?>
                                     <tr>
-                                        <td colspan="6" class="text-center py-5">
+                                        <td colspan="7" class="text-center py-5">
                                             <i class="fas fa-user-slash fa-3x text-muted mb-3"></i>
                                             <h5 class="text-muted">No students found in this section</h5>
                                         </td>
@@ -391,20 +655,35 @@ $attendance_percentage = $total_students > 0 ? round(($present_count / $total_st
                             </table>
                         </div>
                         
-                        <!-- Summary -->
+                        <!-- Summary Section -->
                         <div class="row mt-4">
                             <div class="col-md-6">
                                 <div class="alert alert-info">
-                                    <h6><i class="fas fa-info-circle me-2"></i> Summary</h6>
-                                    <p class="mb-1">Total students in Section <?php echo htmlspecialchars($session_info['section_targeted']); ?>: <strong><?php echo $total_students; ?></strong></p>
-                                    <p class="mb-1">Present: <span class="text-success fw-bold"><?php echo $present_count; ?></span></p>
-                                    <p class="mb-0">Absent: <span class="text-danger fw-bold"><?php echo $absent_count; ?></span></p>
+                                    <h6><i class="fas fa-chart-bar me-2"></i> Attendance Summary</h6>
+                                    <div class="row">
+                                        <div class="col-6">
+                                            <p class="mb-1">Total Students:</p>
+                                            <p class="mb-1">Present:</p>
+                                            <p class="mb-0">Absent:</p>
+                                        </div>
+                                        <div class="col-6 text-end">
+                                            <p class="mb-1 fw-bold"><?php echo $total_students; ?></p>
+                                            <p class="mb-1 fw-bold text-success"><?php echo $present_count; ?></p>
+                                            <p class="mb-0 fw-bold text-danger"><?php echo $absent_count; ?></p>
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
                             <div class="col-md-6">
                                 <div class="alert alert-warning">
-                                    <h6><i class="fas fa-clock me-2"></i> Report Generated</h6>
-                                    <p class="mb-0"><?php echo date('d F Y h:i A'); ?></p>
+                                    <h6><i class="fas fa-info-circle me-2"></i> Report Information</h6>
+                                    <p class="mb-1"><strong>Generated:</strong> <?php echo date('d F Y h:i A'); ?></p>
+                                    <p class="mb-1"><strong>Faculty:</strong> <?php echo htmlspecialchars($_SESSION['faculty_name'] ?? 'N/A'); ?></p>
+                                    <p class="mb-0"><strong>Session Status:</strong> 
+                                        <span class="badge bg-<?php echo $session_info['is_active'] ? 'success' : 'secondary'; ?>">
+                                            <?php echo $session_info['is_active'] ? 'Active' : 'Ended'; ?>
+                                        </span>
+                                    </p>
                                 </div>
                             </div>
                         </div>
@@ -414,44 +693,110 @@ $attendance_percentage = $total_students > 0 ? round(($present_count / $total_st
         </div>
     </div>
 
+    <!-- Footer -->
+    <footer class="footer">
+        <div class="container">
+            <div class="row">
+                <div class="col-md-4 mb-4">
+                    <h5 class="mb-3">
+                        <i class="fas fa-graduation-cap me-2"></i> Smart Attendance System
+                    </h5>
+                    <p class="mb-0">A modern solution for managing student attendance using QR code technology.</p>
+                </div>
+                <div class="col-md-4 mb-4">
+                    <h5 class="mb-3">Quick Links</h5>
+                    <div class="footer-links">
+                        <a href="faculty_dashboard.php" class="d-block mb-2">
+                            <i class="fas fa-home me-2"></i> Dashboard
+                        </a>
+                        <a href="faculty_scan.php" class="d-block mb-2">
+                            <i class="fas fa-qrcode me-2"></i> Scanner
+                        </a>
+                        <a href="faculty_sessions.php" class="d-block mb-2">
+                            <i class="fas fa-history me-2"></i> Session History
+                        </a>
+                        <a href="faculty_profile.php" class="d-block">
+                            <i class="fas fa-user me-2"></i> Profile
+                        </a>
+                    </div>
+                </div>
+                <div class="col-md-4 mb-4">
+                    <h5 class="mb-3">Contact</h5>
+                    <p class="mb-2">
+                        <i class="fas fa-envelope me-2"></i> support@smartattendance.edu
+                    </p>
+                    <p class="mb-2">
+                        <i class="fas fa-phone me-2"></i> +91 98765 43210
+                    </p>
+                    <div class="social-icons mt-3">
+                        <a href="#" class="me-3"><i class="fab fa-facebook"></i></a>
+                        <a href="#" class="me-3"><i class="fab fa-twitter"></i></a>
+                        <a href="#" class="me-3"><i class="fab fa-linkedin"></i></a>
+                        <a href="#" class="me-3"><i class="fab fa-instagram"></i></a>
+                    </div>
+                </div>
+            </div>
+            <hr class="bg-light my-4">
+            <div class="row">
+                <div class="col-md-6">
+                    <p class="mb-0">&copy; <?php echo date('Y'); ?> Smart Attendance System. All rights reserved.</p>
+                </div>
+                <div class="col-md-6 text-end">
+                    <p class="mb-0">Designed with <i class="fas fa-heart text-danger"></i> for better education</p>
+                </div>
+            </div>
+        </div>
+    </footer>
+
     <!-- Bootstrap JS -->
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    
     <script>
-    // Auto-refresh every 30 seconds to update attendance
+    // Auto-refresh every 60 seconds to update attendance
     setTimeout(function() {
         window.location.reload();
-    }, 30000); // 30 seconds
+    }, 60000); // 60 seconds
 
     // Search functionality
     document.addEventListener('DOMContentLoaded', function() {
-        // Add search box dynamically
-        const searchBox = `
-            <div class="input-group mb-3">
-                <span class="input-group-text">
-                    <i class="fas fa-search"></i>
-                </span>
-                <input type="text" id="searchBox" class="form-control" placeholder="Search by Student ID or Name...">
-                <button class="btn btn-outline-secondary" type="button" id="clearSearch">
-                    <i class="fas fa-times"></i>
-                </button>
-            </div>
-        `;
+        const searchInput = document.getElementById('searchBox');
+        const clearButton = document.getElementById('clearSearch');
         
-        const table = document.querySelector('table');
-        if (table) {
-            table.parentNode.insertAdjacentHTML('beforebegin', searchBox);
-            
-            const searchInput = document.getElementById('searchBox');
-            const clearButton = document.getElementById('clearSearch');
-            
+        if (searchInput) {
             searchInput.addEventListener('keyup', function() {
                 const searchTerm = this.value.toLowerCase();
-                const rows = document.querySelectorAll('tbody tr');
+                const rows = document.querySelectorAll('#attendanceTable tbody tr');
+                let visibleCount = 0;
                 
                 rows.forEach(row => {
                     const text = row.textContent.toLowerCase();
-                    row.style.display = text.includes(searchTerm) ? '' : 'none';
+                    if (text.includes(searchTerm)) {
+                        row.style.display = '';
+                        visibleCount++;
+                    } else {
+                        row.style.display = 'none';
+                    }
                 });
+                
+                // Show message if no results found
+                const noResultsRow = document.querySelector('#no-results-row');
+                if (visibleCount === 0) {
+                    if (!noResultsRow) {
+                        const tbody = document.querySelector('#attendanceTable tbody');
+                        const newRow = document.createElement('tr');
+                        newRow.id = 'no-results-row';
+                        newRow.innerHTML = `
+                            <td colspan="7" class="text-center py-4">
+                                <i class="fas fa-search fa-2x text-muted mb-3"></i>
+                                <h5 class="text-muted">No students found matching "${searchTerm}"</h5>
+                                <p class="text-muted">Try a different search term</p>
+                            </td>
+                        `;
+                        tbody.appendChild(newRow);
+                    }
+                } else if (noResultsRow) {
+                    noResultsRow.remove();
+                }
             });
             
             clearButton.addEventListener('click', function() {
@@ -460,7 +805,46 @@ $attendance_percentage = $total_students > 0 ? round(($present_count / $total_st
                 searchInput.focus();
             });
         }
+        
+        // Add print functionality
+        document.querySelector('[onclick="window.print()"]')?.addEventListener('click', function() {
+            // Show print confirmation
+            if (confirm('Print attendance report?')) {
+                setTimeout(() => {
+                    window.print();
+                }, 500);
+            }
+        });
     });
+    
+    // Function to mark attendance via AJAX
+    function markAttendance(studentId, studentName) {
+        if (confirm(`Mark ${studentName} as present?`)) {
+            const formData = new FormData();
+            formData.append('student_id', studentId);
+            formData.append('session_id', <?php echo $session_id; ?>);
+            formData.append('mark_attendance', '1');
+            
+            fetch('faculty_scan.php', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => {
+                if (response.redirected) {
+                    window.location.href = response.url;
+                } else {
+                    return response.text();
+                }
+            })
+            .then(() => {
+                window.location.reload();
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                alert('Failed to mark attendance. Please try again.');
+            });
+        }
+    }
     </script>
 </body>
 </html>
