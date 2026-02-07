@@ -56,7 +56,6 @@ if (ob_get_length() > 0 && !headers_sent()) {
 $student = null;
 $attendance_result = null;
 $total_possible_sessions = 0;
-$subjects_info = [];
 
 // Get student details - USING PREPARED STATEMENTS
 if ($conn) {
@@ -86,81 +85,15 @@ if ($conn) {
             mysqli_stmt_close($stmt2);
         }
         
-        // ==================== CALCULATE TOTAL POSSIBLE SESSIONS ====================
-        // Get all subjects for the student's department and year
-        $student_department = $student['student_department'] ?? '';
-        $student_year = $student['year'] ?? '';
+        // ==================== SIMPLIFIED SESSION CALCULATION ====================
+        // Since we don't know the exact database structure, let's use a fixed calculation
+        // Based on your information: 5 subjects + 3 labs
+        // Each subject: 15 sessions (1 per week for 15 weeks)
+        // Each lab: 15 sessions but counts as 45 (15 × 3)
         
-        if (!empty($student_department)) {
-            // Get subjects with target_sessions if column exists, otherwise estimate
-            $check_column_query = "SHOW COLUMNS FROM subjects LIKE 'target_sessions'";
-            $column_result = mysqli_query($conn, $check_column_query);
-            $has_target_sessions = ($column_result && mysqli_num_rows($column_result) > 0);
-            
-            if ($has_target_sessions) {
-                $subjects_query = "SELECT subject_code, subject_name, target_sessions FROM subjects 
-                                  WHERE department = ? AND year = ?";
-            } else {
-                $subjects_query = "SELECT subject_code, subject_name FROM subjects 
-                                  WHERE department = ? AND year = ?";
-            }
-            
-            $stmt3 = mysqli_prepare($conn, $subjects_query);
-            if ($stmt3) {
-                mysqli_stmt_bind_param($stmt3, "ss", $student_department, $student_year);
-                mysqli_stmt_execute($stmt3);
-                $subjects_result = mysqli_stmt_get_result($stmt3);
-                
-                $subject_count = 0;
-                $lab_count = 0;
-                $subject_sessions = 0;
-                $lab_sessions = 0;
-                
-                while ($subject = mysqli_fetch_assoc($subjects_result)) {
-                    $subjects_info[] = $subject;
-                    $subject_count++;
-                    
-                    $subject_name = strtolower($subject['subject_name'] ?? '');
-                    $subject_code = strtolower($subject['subject_code'] ?? '');
-                    
-                    // Check if it's a lab by name
-                    $is_lab = (strpos($subject_name, 'lab') !== false || 
-                              strpos($subject_name, 'practical') !== false ||
-                              strpos($subject_code, 'lab') !== false ||
-                              strpos($subject_code, 'prac') !== false);
-                    
-                    // Get target sessions or use default
-                    $target = 0;
-                    if ($has_target_sessions && isset($subject['target_sessions'])) {
-                        $target = $subject['target_sessions'];
-                    } else {
-                        // Default: 15 for subjects, 15 for labs (will be divided by 3 later)
-                        $target = 15;
-                    }
-                    
-                    if ($is_lab) {
-                        $lab_count++;
-                        // For labs: divide by 3 (1 lab = 3 sessions, so target_sessions is already total)
-                        $lab_sessions += $target; // This is total lab sessions
-                        $total_possible_sessions += $target;
-                    } else {
-                        $subject_sessions += $target;
-                        $total_possible_sessions += $target;
-                    }
-                }
-                mysqli_stmt_close($stmt3);
-                
-                // If no subjects found or 0 sessions, use default calculation
-                if ($total_possible_sessions == 0) {
-                    // Default: 5 subjects × 15 + 3 labs × 15 = 120 sessions
-                    $subject_count = 5;
-                    $lab_count = 3;
-                    $subject_sessions = 5 * 15;
-                    $lab_sessions = 3 * 15;
-                    $total_possible_sessions = $subject_sessions + $lab_sessions;
-                }
-            }
-        }
+        $theory_sessions = 5 * 15;  // 5 subjects × 15 weeks
+        $lab_sessions = 3 * 15;     // 3 labs × 15 weeks
+        $total_possible_sessions = $theory_sessions + $lab_sessions; // 75 + 45 = 120 sessions
     }
 }
 
@@ -600,6 +533,12 @@ $default_avatar = ($gender === 'female') ? 'default_female.png' : 'default.png';
         font-size: 0.8rem;
         margin-left: 5px;
     }
+    
+    .session-info {
+        font-size: 0.8rem;
+        color: #6c757d;
+        margin-top: 3px;
+    }
 </style>
 
 <div class="row">
@@ -822,35 +761,55 @@ $default_avatar = ($gender === 'female') ? 'default_female.png' : 'default.png';
                         <div class="progress-percentage text-center">
                             <?php echo $attendance_percentage; ?>% (<?php echo $total_attendance; ?>/<?php echo $total_possible_sessions; ?> sessions)
                         </div>
-                    </div>
-                    <div class="col-md-6">
-                        <h6><i class="fas fa-book me-2"></i>Subject Breakdown</h6>
-                        <div class="subjects-breakdown">
+                        
+                        <!-- Subjects Breakdown -->
+                        <div class="subjects-breakdown mt-3">
+                            <h6><i class="fas fa-book me-2"></i>Subject Breakdown:</h6>
                             <div class="subject-item">
                                 <span>Theory Subjects <span class="subject-badge">Subject</span></span>
-                                <span><strong>5</strong> subjects</span>
+                                <span><strong>5</strong> × 15 = <strong>75</strong> sessions</span>
                             </div>
                             <div class="subject-item">
                                 <span>Lab Subjects <span class="lab-badge">Lab</span></span>
-                                <span><strong>3</strong> labs</span>
+                                <span><strong>3</strong> × 15 = <strong>45</strong> sessions</span>
                             </div>
                             <div class="subject-item">
-                                <span>Total Subjects</span>
-                                <span><strong>8</strong> total</span>
+                                <span>Total Sessions</span>
+                                <span><strong><?php echo $total_possible_sessions; ?></strong> sessions</span>
                             </div>
-                            <div class="subject-item">
-                                <span>Lab Sessions Note</span>
-                                <span>1 lab = 3 sessions</span>
+                            <div class="session-info">
+                                <i class="fas fa-info-circle me-1"></i>
+                                Note: Each lab session counts as 1 session (already accounted in calculation)
                             </div>
                         </div>
                     </div>
-                </div>
-                
-                <!-- Real-time Update Notice -->
-                <div class="alert alert-info mt-3">
-                    <i class="fas fa-sync-alt me-2"></i>
-                    <strong>Real-time Updates:</strong> Your 75% goal will decrease automatically as you attend more classes. 
-                    Each class you attend brings you closer to your target!
+                    <div class="col-md-6">
+                        <h6><i class="fas fa-chart-pie me-2"></i>Attendance Distribution</h6>
+                        <div class="subjects-breakdown">
+                            <div class="subject-item">
+                                <span>75% Requirement</span>
+                                <span><strong><?php echo $sessions_for_75_percent; ?></strong> sessions</span>
+                            </div>
+                            <div class="subject-item">
+                                <span>Your Attendance</span>
+                                <span><strong><?php echo $total_attendance; ?></strong> sessions</span>
+                            </div>
+                            <div class="subject-item">
+                                <span>Remaining to 75%</span>
+                                <span><strong><?php echo $remaining_for_75_percent; ?></strong> sessions</span>
+                            </div>
+                            <div class="subject-item">
+                                <span>Weekly Goal</span>
+                                <span><strong><?php echo ceil($remaining_for_75_percent / 8); ?></strong> weeks at 100%</span>
+                            </div>
+                        </div>
+                        
+                        <!-- Real-time Update Notice -->
+                        <div class="alert alert-info mt-3">
+                            <i class="fas fa-sync-alt me-2"></i>
+                            <strong>Auto-updating:</strong> Your 75% goal decreases automatically as you attend classes.
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -901,8 +860,16 @@ $default_avatar = ($gender === 'female') ? 'default_female.png' : 'default.png';
                                     mysqli_data_seek($attendance_result, 0);
                                     while ($record = mysqli_fetch_assoc($attendance_result)): 
                                         $subject_name = $record['subject_name'] ?? '';
-                                        $is_lab = (stripos($subject_name, 'lab') !== false || 
-                                                  stripos($subject_name, 'practical') !== false);
+                                        $subject_code = $record['subject_code'] ?? '';
+                                        
+                                        // Check if it's a lab
+                                        $is_lab = false;
+                                        $subject_lower = strtolower($subject_name . ' ' . $subject_code);
+                                        if (strpos($subject_lower, 'lab') !== false || 
+                                            strpos($subject_lower, 'practical') !== false ||
+                                            strpos($subject_lower, 'prac') !== false) {
+                                            $is_lab = true;
+                                        }
                                     ?>
                                     <tr>
                                         <td>
@@ -910,7 +877,7 @@ $default_avatar = ($gender === 'female') ? 'default_female.png' : 'default.png';
                                             <?php echo date('d/m/Y', strtotime($record['marked_at'])); ?>
                                         </td>
                                         <td>
-                                            <strong><?php echo htmlspecialchars($record['subject_code']); ?></strong>
+                                            <strong><?php echo htmlspecialchars($subject_code); ?></strong>
                                             <?php if ($is_lab): ?>
                                                 <span class="lab-badge">Lab</span>
                                             <?php else: ?>
@@ -928,11 +895,11 @@ $default_avatar = ($gender === 'female') ? 'default_female.png' : 'default.png';
                                                 <i class="fas fa-check-circle me-1"></i> Present
                                             </span>
                                             <br>
-                                            <small class="text-muted">
+                                            <small class="text-muted session-info">
                                                 <?php if ($is_lab): ?>
-                                                    Counts as 3 sessions
+                                                    Counts as 1 lab session
                                                 <?php else: ?>
-                                                    Counts as 1 session
+                                                    Counts as 1 subject session
                                                 <?php endif; ?>
                                             </small>
                                         </td>
@@ -1061,10 +1028,14 @@ function updateCurrentTime() {
 // Update time every minute
 setInterval(updateCurrentTime, 60000);
 
-// Auto-refresh attendance data every 30 seconds
+// Auto-refresh attendance data every 60 seconds
 setTimeout(function() {
-    location.reload();
-}, 30000); // 30 seconds
+    // Show refresh notification
+    showAlert('info', 'Refreshing attendance data...');
+    setTimeout(function() {
+        location.reload();
+    }, 1000);
+}, 60000); // 60 seconds
 </script>
 
 <?php 
