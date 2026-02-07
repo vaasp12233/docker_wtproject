@@ -59,6 +59,7 @@ $total_possible_sessions = 0;
 $theory_sessions = 0;
 $lab_sessions = 0;
 $subjects_data = [];
+$total_attendance = 0; // Initialize total attendance variable
 
 // Get student details - USING PREPARED STATEMENTS
 if ($conn) {
@@ -74,13 +75,31 @@ if ($conn) {
 
     // Get student's attendance - USING PREPARED STATEMENTS
     if ($student) {
-        $attendance_query = "SELECT ar.*, s.subject_code, s.subject_name, ses.session_id, ses.start_time, ses.class_type, ses.lab_type
+        // FIRST: Get total attendance count (ALL records, not limited)
+        $total_attendance_query = "SELECT COUNT(*) as total_count 
+                                  FROM attendance_records ar 
+                                  JOIN sessions ses ON ar.session_id = ses.session_id
+                                  JOIN subjects s ON ses.subject_id = s.subject_id
+                                  WHERE ar.student_id = ?";
+        $stmt_total = mysqli_prepare($conn, $total_attendance_query);
+        if ($stmt_total) {
+            mysqli_stmt_bind_param($stmt_total, "s", $student_id);
+            mysqli_stmt_execute($stmt_total);
+            $total_result = mysqli_stmt_get_result($stmt_total);
+            if ($total_row = mysqli_fetch_assoc($total_result)) {
+                $total_attendance = intval($total_row['total_count']);
+            }
+            mysqli_stmt_close($stmt_total);
+        }
+        
+        // SECOND: Get recent attendance for display (limited to 10)
+        $recent_attendance_query = "SELECT ar.*, s.subject_code, s.subject_name, ses.session_id, ses.start_time, ses.class_type, ses.lab_type
                             FROM attendance_records ar 
                             JOIN sessions ses ON ar.session_id = ses.session_id
                             JOIN subjects s ON ses.subject_id = s.subject_id
                             WHERE ar.student_id = ? 
                             ORDER BY ar.marked_at DESC LIMIT 10";
-        $stmt2 = mysqli_prepare($conn, $attendance_query);
+        $stmt2 = mysqli_prepare($conn, $recent_attendance_query);
         if ($stmt2) {
             mysqli_stmt_bind_param($stmt2, "s", $student_id);
             mysqli_stmt_execute($stmt2);
@@ -144,11 +163,7 @@ if (empty($student['gender'])) {
     exit;
 }
 
-// ==================== Calculate Attendance Statistics ====================
-$total_attendance = 0;
-if ($attendance_result) {
-    $total_attendance = mysqli_num_rows($attendance_result);
-}
+// Note: $total_attendance is already calculated above using separate query
 
 // ==================== GET SESSIONS HAPPENED - FIXED VERSION ====================
 // Count how many sessions have actually happened (past sessions)
