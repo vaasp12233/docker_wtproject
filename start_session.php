@@ -16,23 +16,23 @@ function updateSessionStatus($conn) {
     mysqli_stmt_execute($stmt);
     mysqli_stmt_close($stmt);
     
-    // 2. Deactivate pre-lab sessions after 1 hour of their Start_time
+    // 2. Deactivate pre-lab sessions after 1 MINUTE of their Start_time (for testing)
     $deactivate_prelab = "UPDATE sessions 
                          SET is_active = 0 
                          WHERE lab_type = 'pre-lab' 
                          AND is_active = 1
-                         AND Start_time <= DATE_SUB(?, INTERVAL 1 HOUR)";
+                         AND Start_time <= DATE_SUB(?, INTERVAL 1 MINUTE)";
     $stmt = mysqli_prepare($conn, $deactivate_prelab);
     mysqli_stmt_bind_param($stmt, "s", $current_time);
     mysqli_stmt_execute($stmt);
     mysqli_stmt_close($stmt);
     
-    // 3. Deactivate during-lab sessions after 1 hour of their Start_time
+    // 3. Deactivate during-lab sessions after 1 MINUTE of their Start_time (for testing)
     $deactivate_duringlab = "UPDATE sessions 
                             SET is_active = 0 
                             WHERE lab_type = 'during-lab' 
                             AND is_active = 1
-                            AND Start_time <= DATE_SUB(?, INTERVAL 1 HOUR)";
+                            AND Start_time <= DATE_SUB(?, INTERVAL 1 MINUTE)";
     $stmt = mysqli_prepare($conn, $deactivate_duringlab);
     mysqli_stmt_bind_param($stmt, "s", $current_time);
     mysqli_stmt_execute($stmt);
@@ -58,17 +58,19 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
 
     if ($class_type === 'lab') {
         // ============= CREATE 3 LAB SESSIONS =============
+        // CHANGED: Using MINUTES instead of HOURS for testing
         $lab_types = [
-            'pre-lab' => 0,    // Starts immediately
-            'during-lab' => 1, // Starts after 1 hour  
-            'post-lab' => 2    // Starts after 2 hours
+            'pre-lab' => 0,      // Starts immediately
+            'during-lab' => 1,   // Starts after 1 MINUTE (for testing)
+            'post-lab' => 2      // Starts after 2 MINUTES (for testing)
         ];
 
         $created_sessions = 0;
         $first_session_id = null;
 
-        foreach ($lab_types as $lab_type => $hour_delay) {
-            $scheduled_start = date('Y-m-d H:i:s', strtotime("+{$hour_delay} hours"));
+        foreach ($lab_types as $lab_type => $minute_delay) {
+            // CHANGED: Using minutes instead of hours
+            $scheduled_start = date('Y-m-d H:i:s', strtotime("+{$minute_delay} minutes"));
 
             // Check if lab_type column exists
             $check_column = mysqli_query($conn, "SHOW COLUMNS FROM sessions LIKE 'lab_type'");
@@ -133,9 +135,10 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
 
         if ($created_sessions == 3) {
             $_SESSION['success_message'] = "✅ 3 Lab Sessions Created Successfully!<br>
-                                           • Pre-Lab: Active now (1 hour)<br>
-                                           • During-Lab: Auto-activates in 1 hour<br>
-                                           • Post-Lab: Auto-activates in 2 hours";
+                                           • Pre-Lab: Active now (1 minute)<br>
+                                           • During-Lab: Auto-activates in 1 minute<br>
+                                           • Post-Lab: Auto-activates in 2 minutes<br>
+                                           <small><i>Note: Using 1/2 minute gaps for testing</i></small>";
 
             // Redirect to pre-lab session scanner
             header('Location: faculty_scan.php?session_id=' . urlencode($first_session_id));
