@@ -150,22 +150,40 @@ if ($attendance_result) {
     $total_attendance = mysqli_num_rows($attendance_result);
 }
 
-// ==================== GET SESSIONS HAPPENED ====================
+// ==================== GET SESSIONS HAPPENED - FIXED VERSION ====================
 // Count how many sessions have actually happened (past sessions)
 $sessions_happened = 0;
 if ($conn) {
+    // Try multiple queries to get sessions happened
     $happened_query = "SELECT COUNT(*) as total_happened FROM sessions WHERE start_time <= NOW()";
     $happened_result = mysqli_query($conn, $happened_query);
+    
     if ($happened_result && $row = mysqli_fetch_assoc($happened_result)) {
-        $sessions_happened = $row['total_happened'];
+        $sessions_happened = intval($row['total_happened']);
+    }
+    
+    // If still 0, try alternative query
+    if ($sessions_happened == 0) {
+        $alt_query = "SELECT COUNT(*) as total_happened FROM sessions WHERE DATE(start_time) <= CURDATE()";
+        $alt_result = mysqli_query($conn, $alt_query);
+        if ($alt_result && $row = mysqli_fetch_assoc($alt_result)) {
+            $sessions_happened = intval($row['total_happened']);
+        }
+    }
+    
+    // If still 0, use total_possible_sessions as fallback for percentage calculation
+    if ($sessions_happened == 0) {
+        $sessions_happened = $total_possible_sessions;
     }
 }
 
-// ==================== CALCULATE ATTENDANCE PERCENTAGE ====================
+// ==================== CALCULATE ATTENDANCE PERCENTAGE - FIXED ====================
 // Attendance % = (sessions attended / sessions happened) × 100
 $attendance_percentage = 0;
 if ($sessions_happened > 0) {
     $attendance_percentage = round(($total_attendance / $sessions_happened) * 100, 1);
+} else {
+    $attendance_percentage = 0;
 }
 
 // Determine attendance status based on attendance percentage
@@ -188,6 +206,9 @@ if ($sessions_happened > 0) {
         $attendance_status = "Very Poor";
         $attendance_class = "dark";
     }
+} else {
+    $attendance_status = "No Sessions Yet";
+    $attendance_class = "secondary";
 }
 
 // ==================== Calculate 75% Attendance Predictor ====================
@@ -700,7 +721,13 @@ $default_avatar = 'default.png';
                         <i class="fas fa-percentage"></i> <?php echo $attendance_percentage; ?>%
                     </div>
                     <h6 class="mb-0">Attendance %</h6>
-                    <div class="small mb-2">(<?php echo $total_attendance; ?>/<?php echo $sessions_happened; ?> sessions)</div>
+                    <div class="small mb-2">
+                        <?php if ($sessions_happened > 0): ?>
+                            (<?php echo $total_attendance; ?>/<?php echo $sessions_happened; ?> sessions)
+                        <?php else: ?>
+                            (No sessions yet)
+                        <?php endif; ?>
+                    </div>
                     <span class="badge bg-<?php echo $attendance_class; ?> attendance-status-badge">
                         <?php echo $attendance_status; ?>
                     </span>
@@ -759,13 +786,17 @@ $default_avatar = 'default.png';
                 <div class="mt-3">
                     <div class="d-flex justify-content-between mb-1">
                         <small>Progress to 75%:</small>
+                        <?php if ($sessions_for_75_percent > 0): ?>
                         <small><?php echo min(100, round(($total_attendance / $sessions_for_75_percent) * 100, 1)); ?>%</small>
+                        <?php else: ?>
+                        <small>0%</small>
+                        <?php endif; ?>
                     </div>
                     <div class="progress" style="height: 10px;">
                         <div class="progress-bar bg-warning" 
                              role="progressbar" 
-                             style="width: <?php echo min(100, ($total_attendance / $sessions_for_75_percent) * 100); ?>%"
-                             aria-valuenow="<?php echo min(100, ($total_attendance / $sessions_for_75_percent) * 100); ?>" 
+                             style="width: <?php echo $sessions_for_75_percent > 0 ? min(100, ($total_attendance / $sessions_for_75_percent) * 100) : 0; ?>%"
+                             aria-valuenow="<?php echo $sessions_for_75_percent > 0 ? min(100, ($total_attendance / $sessions_for_75_percent) * 100) : 0; ?>" 
                              aria-valuemin="0" 
                              aria-valuemax="100">
                         </div>
@@ -797,6 +828,7 @@ $default_avatar = 'default.png';
                 <div class="row">
                     <div class="col-md-6">
                         <h6>Current Status: <span class="badge bg-<?php echo $attendance_class; ?>"><?php echo $attendance_status; ?></span></h6>
+                        <?php if ($sessions_happened > 0): ?>
                         <div class="progress attendance-progress">
                             <div class="progress-bar bg-<?php echo $attendance_class; ?>" 
                                  role="progressbar" 
@@ -809,6 +841,12 @@ $default_avatar = 'default.png';
                         <div class="progress-percentage text-center">
                             <?php echo $attendance_percentage; ?>% (<?php echo $total_attendance; ?>/<?php echo $sessions_happened; ?> sessions)
                         </div>
+                        <?php else: ?>
+                        <div class="alert alert-warning">
+                            <i class="fas fa-info-circle me-2"></i>
+                            No class sessions have been scheduled yet.
+                        </div>
+                        <?php endif; ?>
                         
                         <!-- Subjects Breakdown -->
                         <div class="subjects-breakdown mt-3">
