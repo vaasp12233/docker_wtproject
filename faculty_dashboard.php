@@ -544,13 +544,13 @@ include 'header.php';
                             <div class="col-md-12" id="labInfoSection" style="display: none;">
                                 <div class="alert alert-info">
                                     <h6><i class="fas fa-info-circle me-2"></i> Lab Session Information</h6>
-                                    <p class="mb-2"><strong>When you select "Lab Session", three sessions will be created:</strong></p>
+                                    <p class="mb-2"><strong>When you select "Lab Session", three sessions will be created simultaneously:</strong></p>
                                     <ol class="mb-0">
-                                        <li><strong>Pre-Lab Session</strong> - Starts immediately (1 hour duration)</li>
-                                        <li><strong>During-Lab Session</strong> - Starts after 1 hour (1 hour duration)</li>
-                                        <li><strong>Post-Lab Session</strong> - Starts after 2 hours (1 hour duration)</li>
+                                        <li><strong>Pre-Lab Session</strong> - Starts immediately</li>
+                                        <li><strong>During-Lab Session</strong> - Starts immediately</li>
+                                        <li><strong>Post-Lab Session</strong> - Starts immediately</li>
                                     </ol>
-                                    <p class="mt-2 mb-0"><strong>Note:</strong> Only one lab session will be active at a time.</p>
+                                    <p class="mt-2 mb-0"><strong>Note:</strong> All three lab sessions will be active at the same time for separate tracking.</p>
                                 </div>
                             </div>
                             
@@ -692,7 +692,7 @@ include 'header.php';
                     
                     <?php if (!empty($recent_sessions_data)): ?>
                         <div class="text-center mt-3">
-                            <a href="manage_sessions.php" class="btn btn-outline-info btn-sm">
+                            <a href="view_all_session.php" class="btn btn-outline-info btn-sm">
                                 <i class="fas fa-list me-1"></i> View All Sessions
                             </a>
                             <?php if ($active_count > 0): ?>
@@ -794,7 +794,7 @@ document.addEventListener('DOMContentLoaded', function() {
             // Add confirmation for lab sessions
             const selectedClassType = classTypeSelect.value;
             if (selectedClassType === 'lab') {
-                const confirmed = confirm('⚠️ Lab Session Alert!\n\nThree lab sessions will be created:\n1. Pre-Lab - Starts now (1 hour)\n2. During-Lab - Starts after 1 hour\n3. Post-Lab - Starts after 2 hours\n\nOnly one lab session will be active at a time.\n\nContinue?');
+                const confirmed = confirm('⚠️ Lab Session Alert!\n\nThree lab sessions will be created simultaneously:\n1. Pre-Lab - Starts now\n2. During-Lab - Starts now\n3. Post-Lab - Starts now\n\nAll three sessions will be active for separate tracking.\n\nContinue?');
                 if (!confirmed) {
                     e.preventDefault();
                     return false;
