@@ -56,6 +56,9 @@ if (ob_get_length() > 0 && !headers_sent()) {
 $student = null;
 $attendance_result = null;
 $total_possible_sessions = 0;
+$theory_sessions = 0;
+$lab_sessions = 0;
+$subjects_data = [];
 
 // Get student details - USING PREPARED STATEMENTS
 if ($conn) {
@@ -85,15 +88,49 @@ if ($conn) {
             mysqli_stmt_close($stmt2);
         }
         
-        // ==================== SIMPLIFIED SESSION CALCULATION ====================
-        // Since we don't know the exact database structure, let's use a fixed calculation
-        // Based on your information: 5 subjects + 3 labs
-        // Each subject: 15 sessions (1 per week for 15 weeks)
-        // Each lab: 15 sessions but counts as 45 (15 × 3)
+        // ==================== GET SESSIONS FROM SUBJECTS TABLE ====================
+        // Query to get all subjects and their target_sessions
+        $subjects_query = "SELECT subject_name, subject_code, target_sessions FROM subjects";
+        $result = mysqli_query($conn, $subjects_query);
         
-        $theory_sessions = 5 * 15;  // 5 subjects × 15 weeks
-        $lab_sessions = 3 * 15;     // 3 labs × 15 weeks
-        $total_possible_sessions = $theory_sessions + $lab_sessions; // 75 + 45 = 120 sessions
+        if ($result && mysqli_num_rows($result) > 0) {
+            while ($subject = mysqli_fetch_assoc($result)) {
+                $subject_name = strtolower($subject['subject_name']);
+                $subject_code = strtolower($subject['subject_code']);
+                $target_sessions = intval($subject['target_sessions']);
+                
+                // Check if it's a lab (based on common patterns)
+                $is_lab = false;
+                if (strpos($subject_name, 'lab') !== false || 
+                    strpos($subject_name, 'practical') !== false ||
+                    strpos($subject_code, '_lab') !== false ||
+                    strpos($subject_code, 'lab_') !== false) {
+                    $is_lab = true;
+                    $lab_sessions += $target_sessions;
+                } else {
+                    $theory_sessions += $target_sessions;
+                }
+                
+                // Store subject data for display
+                $subjects_data[] = [
+                    'name' => $subject['subject_name'],
+                    'code' => $subject['subject_code'],
+                    'target' => $target_sessions,
+                    'is_lab' => $is_lab
+                ];
+                
+                $total_possible_sessions += $target_sessions;
+            }
+            
+            // Free result
+            mysqli_free_result($result);
+        } else {
+            // Fallback to default values if no subjects found
+            // Based on your information: 5 subjects + 3 labs
+            $theory_sessions = 5 * 15;  // 5 subjects × 15 weeks
+            $lab_sessions = 3 * 15;     // 3 labs × 15 weeks
+            $total_possible_sessions = $theory_sessions + $lab_sessions;
+        }
     }
 }
 
@@ -185,7 +222,8 @@ include 'header.php';
 // Determine gender and set avatar
 $gender = strtolower($student['gender'] ?? 'male');
 $avatar_class = ($gender === 'female') ? 'female-avatar' : 'male-avatar';
-$default_avatar = ($gender === 'female') ? 'default_female.png' : 'default.png';
+// ALWAYS USE default.png FOR ALL STUDENTS
+$default_avatar = 'default.png';
 ?>
 
 <style>
@@ -568,20 +606,16 @@ $default_avatar = ($gender === 'female') ? 'default_female.png' : 'default.png';
                 <h5 class="mb-0"><i class="fas fa-user me-2"></i>My Profile</h5>
             </div>
             <div class="card-body text-center">
-                <!-- Profile Picture - NO EDIT BUTTON -->
+                <!-- Profile Picture - ALWAYS USE default.png -->
                 <div class="mb-3">
                     <?php
-                    // Use gender-specific default avatar
+                    // ALWAYS USE default.png FOR ALL STUDENTS
                     $profile_pic = 'uploads/profiles/' . $default_avatar;
-                    // Check if custom profile exists
-                    $custom_pic = 'uploads/profiles/student_' . $student_id . '.jpg';
-                    if (file_exists($custom_pic)) {
-                        $profile_pic = $custom_pic;
-                    }
                     ?>
                     <img src="<?php echo htmlspecialchars($profile_pic); ?>" 
                          class="rounded-circle profile-img border" 
-                         alt="Profile Picture">
+                         alt="Profile Picture"
+                         onerror="this.onerror=null; this.src='uploads/profiles/default.png';">
                 </div>
                 
                 <h5 class="card-title"><?php echo htmlspecialchars($student['student_name'] ?? 'Student'); ?></h5>
@@ -766,20 +800,39 @@ $default_avatar = ($gender === 'female') ? 'default_female.png' : 'default.png';
                         <div class="subjects-breakdown mt-3">
                             <h6><i class="fas fa-book me-2"></i>Subject Breakdown:</h6>
                             <div class="subject-item">
-                                <span>Theory Subjects <span class="subject-badge">Subject</span></span>
-                                <span><strong>5</strong> × 15 = <strong>75</strong> sessions</span>
+                                <span>Theory Sessions <span class="subject-badge">Subject</span></span>
+                                <span><strong><?php echo $theory_sessions; ?></strong> sessions</span>
                             </div>
                             <div class="subject-item">
-                                <span>Lab Subjects <span class="lab-badge">Lab</span></span>
-                                <span><strong>3</strong> × 15 = <strong>45</strong> sessions</span>
+                                <span>Lab Sessions <span class="lab-badge">Lab</span></span>
+                                <span><strong><?php echo $lab_sessions; ?></strong> sessions</span>
                             </div>
                             <div class="subject-item">
                                 <span>Total Sessions</span>
                                 <span><strong><?php echo $total_possible_sessions; ?></strong> sessions</span>
                             </div>
-                            <div class="session-info">
+                            
+                            <!-- Display individual subjects from database -->
+                            <?php if (!empty($subjects_data)): ?>
+                            <div class="session-info mt-2">
+                                <strong>Individual Subjects:</strong>
+                                <?php foreach ($subjects_data as $subject): ?>
+                                <div style="font-size: 0.8rem; margin-top: 3px;">
+                                    <?php echo htmlspecialchars($subject['code']) . ' - ' . htmlspecialchars($subject['name']); ?>
+                                    (<?php echo $subject['target']; ?> sessions)
+                                    <?php if ($subject['is_lab']): ?>
+                                        <span class="lab-badge" style="font-size: 0.7rem;">Lab</span>
+                                    <?php else: ?>
+                                        <span class="subject-badge" style="font-size: 0.7rem;">Subject</span>
+                                    <?php endif; ?>
+                                </div>
+                                <?php endforeach; ?>
+                            </div>
+                            <?php endif; ?>
+                            
+                            <div class="session-info mt-2">
                                 <i class="fas fa-info-circle me-1"></i>
-                                Note: Each lab session counts as 1 session (already accounted in calculation)
+                                Based on <?php echo count($subjects_data); ?> subjects from database
                             </div>
                         </div>
                     </div>
@@ -801,6 +854,27 @@ $default_avatar = ($gender === 'female') ? 'default_female.png' : 'default.png';
                             <div class="subject-item">
                                 <span>Weekly Goal</span>
                                 <span><strong><?php echo ceil($remaining_for_75_percent / 8); ?></strong> weeks at 100%</span>
+                            </div>
+                        </div>
+                        
+                        <!-- Detailed Attendance Info -->
+                        <div class="subjects-breakdown mt-3">
+                            <h6><i class="fas fa-calculator me-2"></i>Attendance Calculation:</h6>
+                            <div class="subject-item">
+                                <span>To Attend (Theory)</span>
+                                <span><?php echo $theory_sessions; ?> sessions</span>
+                            </div>
+                            <div class="subject-item">
+                                <span>To Attend (Labs)</span>
+                                <span><?php echo $lab_sessions; ?> sessions</span>
+                            </div>
+                            <div class="subject-item">
+                                <span>Already Attended</span>
+                                <span><?php echo $total_attendance; ?> sessions</span>
+                            </div>
+                            <div class="subject-item">
+                                <span>Remaining All</span>
+                                <span><?php echo max(0, $total_possible_sessions - $total_attendance); ?> sessions</span>
                             </div>
                         </div>
                         
@@ -897,9 +971,9 @@ $default_avatar = ($gender === 'female') ? 'default_female.png' : 'default.png';
                                             <br>
                                             <small class="text-muted session-info">
                                                 <?php if ($is_lab): ?>
-                                                    Counts as 1 lab session
+                                                    Lab session
                                                 <?php else: ?>
-                                                    Counts as 1 subject session
+                                                    Theory session
                                                 <?php endif; ?>
                                             </small>
                                         </td>
