@@ -1,4 +1,4 @@
-<?php
+\<?php
 // student_dashboard.php - Render + Aiven + GitHub Compatible
 
 // ==================== Start output buffering ====================
@@ -74,11 +74,19 @@ if ($conn) {
 
     // Get student's attendance - USING PREPARED STATEMENTS
     if ($student) {
-        $attendance_query = "SELECT ar.*, s.subject_code, s.subject_name, ses.session_id, ses.start_time, ses.class_type, ses.lab_type
+        // FIXED: Handle NULL values in sessions table
+        $attendance_query = "SELECT ar.*, 
+                            COALESCE(s.subject_code, 'Unknown Subject') as subject_code, 
+                            COALESCE(s.subject_name, 'Unknown Subject') as subject_name, 
+                            ses.session_id, 
+                            ses.start_time, 
+                            COALESCE(ses.class_type, 'normal') as class_type, 
+                            COALESCE(ses.lab_type, 'lecture') as lab_type
                             FROM attendance_records ar 
-                            JOIN sessions ses ON ar.session_id = ses.session_id
-                            JOIN subjects s ON ses.subject_id = s.subject_id
+                            LEFT JOIN sessions ses ON ar.session_id = ses.session_id
+                            LEFT JOIN subjects s ON ses.subject_id = s.subject_id
                             WHERE ar.student_id = ? 
+                            AND ar.session_id IS NOT NULL
                             ORDER BY ar.marked_at DESC LIMIT 10";
         $stmt2 = mysqli_prepare($conn, $attendance_query);
         if ($stmt2) {
@@ -152,8 +160,8 @@ $lab_attendance = 0;
 if ($attendance_result) {
     mysqli_data_seek($attendance_result, 0);
     while ($record = mysqli_fetch_assoc($attendance_result)) {
-        $class_type = $record['class_type'] ?? '';
-        $lab_type = $record['lab_type'] ?? '';
+        $class_type = $record['class_type'] ?? 'normal';
+        $lab_type = $record['lab_type'] ?? 'lecture';
         
         // Check if it's a lab session - EVERY LAB SESSION = 1 ATTENDANCE MARK
         $is_lab = false;
@@ -182,11 +190,17 @@ $theory_sessions_happened = 0;
 $lab_sessions_happened = 0;
 
 if ($conn) {
-    // Get all past sessions - COUNT EACH SESSION AS 1
-    $happened_query = "SELECT s.*, sub.subject_name, sub.subject_code 
-                      FROM sessions s 
-                      JOIN subjects sub ON s.subject_id = sub.subject_id 
-                      WHERE s.start_time <= NOW()";
+    // FIXED: Handle NULL values and count only valid sessions
+    $happened_query = "SELECT 
+                        ses.session_id,
+                        COALESCE(ses.class_type, 'normal') as class_type,
+                        COALESCE(ses.lab_type, 'lecture') as lab_type,
+                        sub.subject_name,
+                        sub.subject_code
+                      FROM sessions ses 
+                      LEFT JOIN subjects sub ON ses.subject_id = sub.subject_id 
+                      WHERE ses.start_time <= NOW() 
+                      AND ses.session_id IS NOT NULL";
     $happened_result = mysqli_query($conn, $happened_query);
     
     if ($happened_result) {
@@ -213,21 +227,26 @@ if ($conn) {
     }
 }
 
-// ==================== CALCULATE ATTENDANCE PERCENTAGE ====================
-// Attendance % = (sessions attended / sessions happened) × 100
-$attendance_percentage = 0;
-if ($sessions_happened > 0) {
+// ==================== FIX: Handle edge cases ====================
+// If no sessions have happened yet, set default values
+if ($sessions_happened == 0) {
+    $attendance_percentage = 0;
+    $display_percentage = 0;
+    $attendance_status = "No Sessions Yet";
+    $attendance_class = "secondary";
+} else {
+    // ==================== CALCULATE ATTENDANCE PERCENTAGE ====================
+    // Attendance % = (sessions attended / sessions happened) × 100
     $attendance_percentage = round(($total_attendance / $sessions_happened) * 100, 1);
-}
+    
+    // ==================== FIX THE IMPOSSIBLE PERCENTAGE ISSUE ====================
+    // If percentage is > 100%, there's a data mismatch. Cap it at 100% for display
+    $display_percentage = min(100, $attendance_percentage);
 
-// ==================== FIX THE IMPOSSIBLE PERCENTAGE ISSUE ====================
-// If percentage is > 100%, there's a data mismatch. Cap it at 100% for display
-$display_percentage = min(100, $attendance_percentage);
-
-// Determine attendance status based on attendance percentage
-$attendance_status = "No Data";
-$attendance_class = "secondary";
-if ($sessions_happened > 0) {
+    // Determine attendance status based on attendance percentage
+    $attendance_status = "No Data";
+    $attendance_class = "secondary";
+    
     if ($attendance_percentage >= 85) {
         $attendance_status = "Excellent";
         $attendance_class = "success";
@@ -295,7 +314,11 @@ $avatar_class = ($gender === 'female') ? 'female-avatar' : 'male-avatar';
 $default_avatar = 'default.png';
 ?>
 
+<!-- REST OF YOUR HTML/CSS/JAVASCRIPT CODE REMAINS EXACTLY THE SAME -->
+<!-- The UI/UX doesn't change, only the PHP logic above was fixed -->
+
 <style>
+    /* ALL YOUR CSS STYLES REMAIN EXACTLY THE SAME */
     /* Mobile Responsive Styles */
     @media (max-width: 768px) {
         .card {
@@ -1026,10 +1049,10 @@ $default_avatar = 'default.png';
                                     <?php 
                                     mysqli_data_seek($attendance_result, 0);
                                     while ($record = mysqli_fetch_assoc($attendance_result)): 
-                                        $subject_name = $record['subject_name'] ?? '';
-                                        $subject_code = $record['subject_code'] ?? '';
-                                        $class_type = $record['class_type'] ?? '';
-                                        $lab_type = $record['lab_type'] ?? '';
+                                        $subject_name = $record['subject_name'] ?? 'Unknown Subject';
+                                        $subject_code = $record['subject_code'] ?? 'Unknown';
+                                        $class_type = $record['class_type'] ?? 'normal';
+                                        $lab_type = $record['lab_type'] ?? 'lecture';
                                         
                                         // Check if it's a lab based on class_type and lab_type
                                         $is_lab = false;
