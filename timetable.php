@@ -397,7 +397,7 @@ include 'header.php';
                                 </div>
                                 <div class="legend-item">
                                     <div class="legend-color" style="background: var(--dsp-color);"></div>
-                                    <span>DSP - Digital Signal Processing</span>
+                                    <span>DSP - DataScience With Python</span>
                                 </div>
                             </div>
                             <div class="col-md-3">
@@ -764,7 +764,7 @@ include 'header.php';
                     <div class="legend-item"><div class="legend-color" style="background: #4361ee;"></div>MQT - Modern Quantum Theory</div>
                     <div class="legend-item"><div class="legend-color" style="background: #4cc9f0;"></div>WT - Web Technologies</div>
                     <div class="legend-item"><div class="legend-color" style="background: #f72585;"></div>OR - Operations Research</div>
-                    <div class="legend-item"><div class="legend-color" style="background: #7209b7;"></div>DSP - Digital Signal Processing</div>
+                    <div class="legend-item"><div class="legend-color" style="background: #7209b7;"></div>DSP - DataScience With Python</div>
                     <div class="legend-item"><div class="legend-color" style="background: #3a0ca3;"></div>COA - Computer Organization</div>
                     <div class="legend-item"><div class="legend-color" style="background: #ff9e00;"></div>CD - Compiler Design</div>
                     <div class="legend-item"><div class="legend-color" style="background: #06d6a0;"></div>LAB - Laboratory Session</div>
@@ -871,16 +871,17 @@ function getTimetableForSection($section) {
                 ['time' => '08:30 - 09:30', 'code' => 'MQT', 'name' => 'MQT', 'fullname' => 'Modern Quantum Theory', 'type' => 'LECTURE', 'duration' => 1],
                 ['time' => '09:30 - 10:30', 'code' => 'WT', 'name' => 'WT', 'fullname' => 'Web Technologies', 'type' => 'LECTURE', 'duration' => 1],
                 ['time' => '10:40 - 11:40', 'code' => 'OR', 'name' => 'OR', 'fullname' => 'Operations Research', 'type' => 'LECTURE', 'duration' => 1],
-                ['time' => '11:40 - 12:40', 'code' => 'DSP', 'name' => 'DSP', 'fullname' => 'Digital Signal Processing', 'type' => 'LECTURE', 'duration' => 1],
-                ['time' => '01:40 - 04:40', 'code' => 'COA', 'name' => 'COA LAB', 'fullname' => 'Computer Organization Lab', 'type' => 'LAB', 'duration' => 3],
+                ['time' => '11:40 - 12:40', 'code' => 'DSP', 'name' => 'DSP', 'fullname' => 'DataScience With Python', 'type' => 'LECTURE', 'duration' => 1],
+                ['time' => '01:40 - 04:40', 'code' => 'WT', 'name' => 'WT LAB', 'fullname' => 'Web Technologies Lab', 'type' => 'LAB', 'duration' => 3],
             ],
             'Tuesday' => [
                 ['time' => '08:30 - 09:30', 'code' => 'MQT', 'name' => 'MQT', 'fullname' => 'Modern Quantum Theory', 'type' => 'LECTURE', 'duration' => 1],
                 ['time' => '09:30 - 10:30', 'code' => 'OR', 'name' => 'OR', 'fullname' => 'Operations Research', 'type' => 'LECTURE', 'duration' => 1],
                 ['time' => '10:40 - 11:40', 'code' => 'WT', 'name' => 'WT', 'fullname' => 'Web Technologies', 'type' => 'LECTURE', 'duration' => 1],
                 ['time' => '11:40 - 12:40', 'code' => 'COA', 'name' => 'COA', 'fullname' => 'Computer Organization', 'type' => 'LECTURE', 'duration' => 1],
-                ['time' => '01:40 - 02:40', 'code' => 'DSP', 'name' => 'DSP', 'fullname' => 'Digital Signal Processing', 'type' => 'LECTURE', 'duration' => 1],
-                ['time' => '02:40 - 04:40', 'code' => 'DSP', 'name' => 'DSP LAB', 'fullname' => 'Digital Signal Processing Lab', 'type' => 'LAB', 'duration' => 2],
+                ['time' => '01:40 - 02:40', 'code' => 'DSP', 'name' => 'DSP', 'fullname' => 'DataScience With Python', 'type' => 'LECTURE', 'duration' => 1],
+                ['time' => '02:40 - 04:40', 'code' => 'COA', 'name' => 'COA LAB', 'fullname' => 'Computer Organization
+                +Lab', 'type' => 'LAB', 'duration' => 2],
             ],
             'Wednesday' => [
                 ['time' => '08:30 - 09:30', 'code' => 'MQT', 'name' => 'MQT', 'fullname' => 'Modern Quantum Theory', 'type' => 'LECTURE', 'duration' => 1],
@@ -901,7 +902,7 @@ function getTimetableForSection($section) {
                 ['time' => '09:30 - 10:30', 'code' => 'OR', 'name' => 'OR', 'fullname' => 'Operations Research', 'type' => 'LECTURE', 'duration' => 1, 'combined' => '(A+B combined)'],
                 ['time' => '10:40 - 11:40', 'code' => 'WT', 'name' => 'WT', 'fullname' => 'Web Technologies', 'type' => 'LECTURE', 'duration' => 1],
                 ['time' => '11:40 - 12:40', 'code' => 'COA', 'name' => 'COA', 'fullname' => 'Computer Organization', 'type' => 'LECTURE', 'duration' => 1],
-                ['time' => '01:40 - 04:40', 'code' => 'DSP', 'name' => 'DSP LAB', 'fullname' => 'Digital Signal Processing Lab', 'type' => 'LAB', 'duration' => 3],
+                ['time' => '01:40 - 04:40', 'code' => 'DSP', 'name' => 'wLAB', 'fullname' => 'DataScience With Python Lab', 'type' => 'LAB', 'duration' => 3],
             ],
             'Saturday' => [
                 ['time' => '08:30 - 09:30', 'code' => 'MQT', 'name' => 'MQT', 'fullname' => 'Modern Quantum Theory', 'type' => 'LECTURE', 'duration' => 1],
@@ -915,7 +916,7 @@ function getTimetableForSection($section) {
                 ['time' => '08:30 - 09:30', 'code' => 'MQT', 'name' => 'MQT', 'fullname' => 'Modern Quantum Theory', 'type' => 'LECTURE', 'duration' => 1],
                 ['time' => '09:30 - 10:30', 'code' => 'OR', 'name' => 'OR', 'fullname' => 'Operations Research', 'type' => 'LECTURE', 'duration' => 1],
                 ['time' => '10:40 - 11:40', 'code' => 'CD', 'name' => 'CD', 'fullname' => 'Compiler Design', 'type' => 'LECTURE', 'duration' => 1],
-                ['time' => '11:40 - 12:40', 'code' => 'DSP', 'name' => 'DSP', 'fullname' => 'Digital Signal Processing', 'type' => 'LECTURE', 'duration' => 1],
+                ['time' => '11:40 - 12:40', 'code' => 'DSP', 'name' => 'DSP', 'fullname' => 'DataScience With Python', 'type' => 'LECTURE', 'duration' => 1],
                 ['time' => '01:40 - 04:40', 'code' => 'COA', 'name' => 'COA LAB', 'fullname' => 'Computer Organization Lab', 'type' => 'LAB', 'duration' => 3],
             ],
             'Tuesday' => [
@@ -923,7 +924,7 @@ function getTimetableForSection($section) {
                 ['time' => '09:30 - 10:30', 'code' => 'CD', 'name' => 'CD', 'fullname' => 'Compiler Design', 'type' => 'LECTURE', 'duration' => 1],
                 ['time' => '10:40 - 11:40', 'code' => 'OR', 'name' => 'OR', 'fullname' => 'Operations Research', 'type' => 'LECTURE', 'duration' => 1],
                 ['time' => '11:40 - 12:40', 'code' => 'WT', 'name' => 'WT', 'fullname' => 'Web Technologies', 'type' => 'LECTURE', 'duration' => 1],
-                ['time' => '01:40 - 02:40', 'code' => 'DSP', 'name' => 'DSP', 'fullname' => 'Digital Signal Processing', 'type' => 'LECTURE', 'duration' => 1],
+                ['time' => '01:40 - 02:40', 'code' => 'DSP', 'name' => 'DSP', 'fullname' => 'DataScience With Python', 'type' => 'LECTURE', 'duration' => 1],
             ],
             'Wednesday' => [
                 ['time' => '08:30 - 09:30', 'code' => 'MQT', 'name' => 'MQT', 'fullname' => 'Modern Quantum Theory', 'type' => 'LECTURE', 'duration' => 1],
@@ -936,14 +937,14 @@ function getTimetableForSection($section) {
                 ['time' => '09:30 - 10:30', 'code' => 'CD', 'name' => 'CD', 'fullname' => 'Compiler Design', 'type' => 'LECTURE', 'duration' => 1],
                 ['time' => '10:40 - 11:40', 'code' => 'COA', 'name' => 'COA', 'fullname' => 'Computer Organization', 'type' => 'LECTURE', 'duration' => 1],
                 ['time' => '11:40 - 12:40', 'code' => 'WT', 'name' => 'WT', 'fullname' => 'Web Technologies', 'type' => 'LECTURE', 'duration' => 1],
-                ['time' => '01:40 - 02:40', 'code' => 'DSP', 'name' => 'DSP', 'fullname' => 'Digital Signal Processing', 'type' => 'LECTURE', 'duration' => 1],
+                ['time' => '01:40 - 02:40', 'code' => 'DSP', 'name' => 'DSP', 'fullname' => 'DataScience With Python', 'type' => 'LECTURE', 'duration' => 1],
             ],
             'Friday' => [
                 ['time' => '08:30 - 09:30', 'code' => 'MQT', 'name' => 'MQT', 'fullname' => 'Modern Quantum Theory', 'type' => 'LECTURE', 'duration' => 1],
                 ['time' => '09:30 - 10:30', 'code' => 'OR', 'name' => 'OR', 'fullname' => 'Operations Research', 'type' => 'LECTURE', 'duration' => 1, 'combined' => '(A+B combined)'],
                 ['time' => '10:40 - 11:40', 'code' => 'WT', 'name' => 'WT', 'fullname' => 'Web Technologies', 'type' => 'LECTURE', 'duration' => 1],
-                ['time' => '11:40 - 12:40', 'code' => 'DSP', 'name' => 'DSP', 'fullname' => 'Digital Signal Processing', 'type' => 'LECTURE', 'duration' => 1],
-                ['time' => '01:40 - 04:40', 'code' => 'DSP', 'name' => 'DSP LAB', 'fullname' => 'Digital Signal Processing Lab', 'type' => 'LAB', 'duration' => 3],
+                ['time' => '11:40 - 12:40', 'code' => 'DSP', 'name' => 'DSP', 'fullname' => 'DataScience With Python', 'type' => 'LECTURE', 'duration' => 1],
+                ['time' => '01:40 - 04:40', 'code' => 'DSP', 'name' => 'DSP LAB', 'fullname' => 'DataScience With Python Lab', 'type' => 'LAB', 'duration' => 3],
             ],
             'Saturday' => [
                 ['time' => '08:30 - 09:30', 'code' => 'MQT', 'name' => 'MQT', 'fullname' => 'Modern Quantum Theory', 'type' => 'LECTURE', 'duration' => 1],
@@ -964,9 +965,9 @@ function getTimetableForSection($section) {
             'Tuesday' => [
                 ['time' => '08:30 - 09:30', 'code' => 'MQT', 'name' => 'MQT', 'fullname' => 'Modern Quantum Theory', 'type' => 'LECTURE', 'duration' => 1],
                 ['time' => '09:30 - 10:30', 'code' => 'COA', 'name' => 'COA', 'fullname' => 'Computer Organization', 'type' => 'LECTURE', 'duration' => 1],
-                ['time' => '10:40 - 11:40', 'code' => 'DSP', 'name' => 'DSP', 'fullname' => 'Digital Signal Processing', 'type' => 'LECTURE', 'duration' => 1],
+                ['time' => '10:40 - 11:40', 'code' => 'DSP', 'name' => 'DSP', 'fullname' => 'DataScience With Python', 'type' => 'LECTURE', 'duration' => 1],
                 ['time' => '11:40 - 12:40', 'code' => 'COA', 'name' => 'COA', 'fullname' => 'Computer Organization', 'type' => 'LECTURE', 'duration' => 1],
-                ['time' => '01:40 - 04:40', 'code' => 'DSP', 'name' => 'DSP LAB', 'fullname' => 'Digital Signal Processing Lab', 'type' => 'LAB', 'duration' => 3],
+                ['time' => '01:40 - 04:40', 'code' => 'DSP', 'name' => 'DSP LAB', 'fullname' => 'DataScience With Python Lab', 'type' => 'LAB', 'duration' => 3],
             ],
             'Wednesday' => [
                 ['time' => '08:30 - 09:30', 'code' => 'MQT', 'name' => 'MQT', 'fullname' => 'Modern Quantum Theory', 'type' => 'LECTURE', 'duration' => 1],
@@ -1038,9 +1039,9 @@ function getTimetableForSection($section) {
     'Monday' => [
         ['time' => '08:30 - 09:30', 'code' => 'MQT', 'name' => 'MQT', 'fullname' => 'Modern Quantum Theory', 'type' => 'LECTURE', 'duration' => 1],
         ['time' => '09:30 - 10:30', 'code' => 'CD', 'name' => 'CD', 'fullname' => 'Compiler Design', 'type' => 'LECTURE', 'duration' => 1],
-        ['time' => '10:40 - 11:40', 'code' => 'DSP', 'name' => 'DSP', 'fullname' => 'Digital Signal Processing', 'type' => 'LECTURE', 'duration' => 1],
+        ['time' => '10:40 - 11:40', 'code' => 'DSP', 'name' => 'DSP', 'fullname' => 'DataScience With Python', 'type' => 'LECTURE', 'duration' => 1],
         ['time' => '11:40 - 12:40', 'code' => 'OR', 'name' => 'OR', 'fullname' => 'Operations Research', 'type' => 'LECTURE', 'duration' => 1],
-        ['time' => '01:40 - 04:40', 'code' => 'DSP', 'name' => 'DSP LAB', 'fullname' => 'Digital Signal Processing Lab', 'type' => 'LAB', 'duration' => 3],
+        ['time' => '01:40 - 04:40', 'code' => 'DSP', 'name' => 'DSP LAB', 'fullname' => 'DataScience With Python Lab', 'type' => 'LAB', 'duration' => 3],
     ],
     'Tuesday' => [
         ['time' => '08:30 - 09:30', 'code' => 'MQT', 'name' => 'MQT', 'fullname' => 'Modern Quantum Theory', 'type' => 'LECTURE', 'duration' => 1],
@@ -1054,7 +1055,7 @@ function getTimetableForSection($section) {
         ['time' => '09:30 - 10:30', 'code' => 'CD', 'name' => 'CD', 'fullname' => 'Compiler Design', 'type' => 'LECTURE', 'duration' => 1],
         ['time' => '10:40 - 11:40', 'code' => 'WT', 'name' => 'WT', 'fullname' => 'Web Technologies', 'type' => 'LECTURE', 'duration' => 1],
         ['time' => '11:40 - 12:40', 'code' => 'OR', 'name' => 'OR', 'fullname' => 'Operations Research', 'type' => 'LECTURE', 'duration' => 1],
-        ['time' => '02:40 - 04:40', 'code' => 'DSP', 'name' => 'DSP', 'fullname' => 'Digital Signal Processing', 'type' => 'LECTURE', 'duration' => 2],
+        ['time' => '02:40 - 04:40', 'code' => 'DSP', 'name' => 'DSP', 'fullname' => 'DataScience With Python', 'type' => 'LECTURE', 'duration' => 2],
     ],
     'Thursday' => [
         ['time' => '08:30 - 09:30', 'code' => 'MQT', 'name' => 'MQT', 'fullname' => 'Modern Quantum Theory', 'type' => 'LECTURE', 'duration' => 1],
@@ -1083,14 +1084,14 @@ function getTimetableForSection($section) {
 function getLabsForSection($section) {
     $labs = [
         'A' => [
-            ['subject' => 'COA', 'day' => 'Monday', 'time' => '01:40 - 04:40', 'duration' => 3, 'count' => 2],
-            ['subject' => 'DSP', 'day' => 'Tuesday', 'time' => '02:40 - 04:40', 'duration' => 2, 'count' => 1],
+            ['subject' => 'WT', 'day' => 'Tuesday', 'time' => '02:40 - 04:40', 'duration' => 2, 'count' => 1],
             ['subject' => 'COA', 'day' => 'Thursday', 'time' => '01:40 - 04:40', 'duration' => 3, 'count' => 2],
             ['subject' => 'DSP', 'day' => 'Friday', 'time' => '01:40 - 04:40', 'duration' => 3, 'count' => 1],
         ],
         'B' => [
             ['subject' => 'COA', 'day' => 'Monday', 'time' => '01:40 - 04:40', 'duration' => 3, 'count' => 2],
-            ['subject' => 'DSP', 'day' => 'Friday', 'time' => '01:40 - 04:40', 'duration' => 3, 'count' => 1],
+            ['subject' => 'DSP', 'day' => 'Wednesday', 'time' => '01:40 - 04:40', 'duration' => 3, 'count' => 1],
+            ['subject' => 'WT', 'day' => 'Friday', 'time' => '01:40 - 04:40', 'duration' => 3, 'count' => 1],
         ],
         'C' => [
             ['subject' => 'DSP', 'day' => 'Tuesday', 'time' => '01:40 - 04:40', 'duration' => 3, 'count' => 1],
