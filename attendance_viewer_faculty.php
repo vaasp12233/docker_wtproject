@@ -33,6 +33,14 @@ mysqli_stmt_bind_param($subjects_stmt, "s", $faculty_id);
 mysqli_stmt_execute($subjects_stmt);
 $subjects_result = mysqli_stmt_get_result($subjects_stmt);
 
+// Store subjects in array for later use
+$subjects_data = [];
+while($subject = mysqli_fetch_assoc($subjects_result)) {
+    $subjects_data[] = $subject;
+}
+// Reset pointer
+reset($subjects_data);
+
 // Get all sections from students
 $sections_query = "SELECT DISTINCT section FROM students WHERE section != '' ORDER BY section";
 $sections_result = mysqli_query($conn, $sections_query);
@@ -282,9 +290,6 @@ while($chart_row = mysqli_fetch_assoc($chart_result)) {
 mysqli_stmt_close($chart_stmt);
 ?>
 
-<!-- The rest of your HTML/PHP code remains exactly the same -->
-<!-- Only the PHP data fetching part has been secured -->
-
 <div class="container-fluid">
     <!-- Page Header -->
     <div class="d-sm-flex align-items-center justify-content-between mb-4">
@@ -405,14 +410,12 @@ mysqli_stmt_close($chart_stmt);
                     <select name="subject_id" class="form-control">
                         <option value="">All Subjects</option>
                         <?php 
-                        mysqli_data_seek($subjects_result, 0); // Reset result pointer
-                        while($subject = mysqli_fetch_assoc($subjects_result)): ?>
+                        foreach($subjects_data as $subject): ?>
                             <option value="<?php echo intval($subject['subject_id']); ?>" 
                                 <?php echo ($subject_filter == $subject['subject_id']) ? 'selected' : ''; ?>>
                                 <?php echo htmlspecialchars($subject['subject_code'] . ' - ' . $subject['subject_name']); ?>
                             </option>
-                        <?php endwhile; ?>
-                        <?php mysqli_stmt_close($subjects_stmt); ?>
+                        <?php endforeach; ?>
                     </select>
                 </div>
                 
@@ -706,7 +709,11 @@ mysqli_stmt_close($chart_stmt);
                                         s.section,
                                         COUNT(DISTINCT s.student_id) as total_students,
                                         COUNT(ar.record_id) as total_records,
-                                        ROUND(COUNT(ar.record_id) / COUNT(DISTINCT s.student_id), 1) as avg_per_student
+                                        CASE 
+                                            WHEN COUNT(DISTINCT s.student_id) > 0 
+                                            THEN ROUND(COUNT(ar.record_id) / COUNT(DISTINCT s.student_id), 1)
+                                            ELSE 0
+                                        END as avg_per_student
                                     FROM students s
                                     LEFT JOIN attendance_records ar ON s.student_id = ar.student_id
                                     LEFT JOIN sessions ses ON ar.session_id = ses.session_id
@@ -734,16 +741,20 @@ mysqli_stmt_close($chart_stmt);
                                     $section_param_types .= "s";
                                 }
                                 
+                                // Always show sections that have students
+                                $section_stats_query .= " AND s.section != ''";
+                                
                                 $section_stats_query .= " GROUP BY s.section ORDER BY s.section";
                                 
                                 $section_stats_stmt = mysqli_prepare($conn, $section_stats_query);
-                                if ($section_params) {
+                                if (!empty($section_params)) {
                                     mysqli_stmt_bind_param($section_stats_stmt, $section_param_types, ...$section_params);
                                 }
                                 mysqli_stmt_execute($section_stats_stmt);
                                 $section_stats_result = mysqli_stmt_get_result($section_stats_stmt);
                                 
-                                while($section_stat = mysqli_fetch_assoc($section_stats_result)):
+                                if ($section_stats_result && mysqli_num_rows($section_stats_result) > 0) {
+                                    while($section_stat = mysqli_fetch_assoc($section_stats_result)):
                                 ?>
                                 <tr>
                                     <td><strong>Section <?php echo htmlspecialchars($section_stat['section']); ?></strong></td>
@@ -752,7 +763,7 @@ mysqli_stmt_close($chart_stmt);
                                     <td>
                                         <div class="progress" style="height: 20px;">
                                             <?php 
-                                            $percentage = ($section_stat['avg_per_student'] > 10) ? 100 : ($section_stat['avg_per_student'] * 10);
+                                            $percentage = min(100, ($section_stat['avg_per_student'] * 10));
                                             ?>
                                             <div class="progress-bar bg-info" role="progressbar" 
                                                  style="width: <?php echo $percentage; ?>%">
@@ -761,14 +772,24 @@ mysqli_stmt_close($chart_stmt);
                                         </div>
                                     </td>
                                     <td>
-                                        <a href="?section=<?php echo urlencode($section_stat['section']); ?>&<?php echo http_build_query($_GET); ?>" 
+                                        <a href="?section=<?php echo urlencode($section_stat['section']); ?>&<?php echo http_build_query(array_diff_key($_GET, ['page' => ''])); ?>" 
                                            class="btn btn-sm btn-outline-primary">
                                             <i class="fas fa-filter"></i> Filter
                                         </a>
                                     </td>
                                 </tr>
-                                <?php endwhile; 
-                                mysqli_stmt_close($section_stats_stmt);
+                                <?php 
+                                    endwhile; 
+                                } else {
+                                    echo '<tr><td colspan="5" class="text-center">No section data found</td></tr>';
+                                }
+                                
+                                // Close statements
+                                if (isset($section_stats_stmt)) {
+                                    mysqli_stmt_close($section_stats_stmt);
+                                }
+                                
+                                // Close the main statement
                                 mysqli_stmt_close($main_stmt);
                                 ?>
                             </tbody>
