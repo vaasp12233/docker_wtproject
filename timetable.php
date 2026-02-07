@@ -1032,46 +1032,48 @@ function getTimetableForSection($section) {
                 ['time' => '08:30 - 09:30', 'code' => 'MQT', 'name' => 'MQT', 'fullname' => 'Modern Quantum Theory', 'type' => 'LECTURE', 'duration' => 1],
             ]
         ],
-        'E' => [
-            'Monday' => [
-                ['time' => '08:30 - 09:30', 'code' => 'MQT', 'name' => 'MQT', 'fullname' => 'Modern Quantum Theory', 'type' => 'LECTURE', 'duration' => 1],
-                ['time' => '09:30 - 10:30', 'code' => 'CD', 'name' => 'CD', 'fullname' => 'Compiler Design', 'type' => 'LECTURE', 'duration' => 1],
-                ['time' => '10:40 - 11:40', 'code' => 'DSP', 'name' => 'DSP', 'fullname' => 'Digital Signal Processing', 'type' => 'LECTURE', 'duration' => 1],
-                ['time' => '11:40 - 12:40', 'code' => 'WT', 'name' => 'WT', 'fullname' => 'Web Technologies', 'type' => 'LECTURE', 'duration' => 1],
-                ['time' => '01:40 - 02:40', 'code' => 'OR', 'name' => 'OR', 'fullname' => 'Operations Research', 'type' => 'LECTURE', 'duration' => 1],
-            ],
-            'Tuesday' => [
-                ['time' => '08:30 - 09:30', 'code' => 'MQT', 'name' => 'MQT', 'fullname' => 'Modern Quantum Theory', 'type' => 'LECTURE', 'duration' => 1],
-                ['time' => '09:30 - 10:30', 'code' => 'CD', 'name' => 'CD', 'fullname' => 'Compiler Design', 'type' => 'LECTURE', 'duration' => 1],
-                ['time' => '10:40 - 11:40', 'code' => 'COA', 'name' => 'COA', 'fullname' => 'Computer Organization', 'type' => 'LECTURE', 'duration' => 1],
-                ['time' => '11:40 - 12:40', 'code' => 'WT', 'name' => 'WT', 'fullname' => 'Web Technologies', 'type' => 'LECTURE', 'duration' => 1],
-                ['time' => '01:40 - 04:40', 'code' => 'WT', 'name' => 'WT LAB', 'fullname' => 'Web Technologies Lab', 'type' => 'LAB', 'duration' => 3],
-            ],
-            'Wednesday' => [
-                ['time' => '08:30 - 09:30', 'code' => 'MQT', 'name' => 'MQT', 'fullname' => 'Modern Quantum Theory', 'type' => 'LECTURE', 'duration' => 1],
-                ['time' => '09:30 - 10:30', 'code' => 'CD', 'name' => 'CD', 'fullname' => 'Compiler Design', 'type' => 'LECTURE', 'duration' => 1],
-                ['time' => '10:40 - 11:40', 'code' => 'WT', 'name' => 'WT', 'fullname' => 'Web Technologies', 'type' => 'LECTURE', 'duration' => 1],
-                ['time' => '11:40 - 12:40', 'code' => 'OR', 'name' => 'OR', 'fullname' => 'Operations Research', 'type' => 'LECTURE', 'duration' => 1],
-                ['time' => '02:40 - 04:40', 'code' => 'DSP', 'name' => 'DSP', 'fullname' => 'Digital Signal Processing', 'type' => 'LECTURE', 'duration' => 2],
-            ],
-            'Thursday' => [
-                ['time' => '08:30 - 09:30', 'code' => 'MQT', 'name' => 'MQT', 'fullname' => 'Modern Quantum Theory', 'type' => 'LECTURE', 'duration' => 1],
-                ['time' => '09:30 - 10:30', 'code' => 'WT', 'name' => 'WT', 'fullname' => 'Web Technologies', 'type' => 'LECTURE', 'duration' => 1],
-                ['time' => '10:40 - 11:40', 'code' => 'OR', 'name' => 'OR', 'fullname' => 'Operations Research', 'type' => 'LECTURE', 'duration' => 1],
-                ['time' => '11:40 - 12:40', 'code' => 'CD', 'name' => 'CD', 'fullname' => 'Compiler Design', 'type' => 'LECTURE', 'duration' => 1],
-                ['time' => '01:40 - 04:40', 'code' => 'COA', 'name' => 'COA LAB', 'fullname' => 'Computer Organization Lab', 'type' => 'LAB', 'duration' => 3],
-            ],
-            'Friday' => [
-                ['time' => '08:30 - 09:30', 'code' => 'MQT', 'name' => 'MQT', 'fullname' => 'Modern Quantum Theory', 'type' => 'LECTURE', 'duration' => 1],
-                ['time' => '09:30 - 10:30', 'code' => 'WT', 'name' => 'WT', 'fullname' => 'Web Technologies', 'type' => 'LECTURE', 'duration' => 1],
-                ['time' => '10:40 - 11:40', 'code' => 'COA', 'name' => 'COA', 'fullname' => 'Computer Organization', 'type' => 'LECTURE', 'duration' => 1],
-                ['time' => '11:40 - 12:40', 'code' => 'OR', 'name' => 'OR', 'fullname' => 'Operations Research', 'type' => 'LECTURE', 'duration' => 1],
-                ['time' => '02:40 - 04:40', 'code' => 'WT', 'name' => 'WT', 'fullname' => 'Web Technologies', 'type' => 'LECTURE', 'duration' => 2],
-            ],
-            'Saturday' => [
-                ['time' => '08:30 - 09:30', 'code' => 'MQT', 'name' => 'MQT', 'fullname' => 'Modern Quantum Theory', 'type' => 'LECTURE', 'duration' => 1],
-            ]
-        ]
+       // Update the Section E timetable in getTimetableForSection() function:
+
+'E' => [
+    'Monday' => [
+        ['time' => '08:30 - 09:30', 'code' => 'MQT', 'name' => 'MQT', 'fullname' => 'Modern Quantum Theory', 'type' => 'LECTURE', 'duration' => 1],
+        ['time' => '09:30 - 10:30', 'code' => 'CD', 'name' => 'CD', 'fullname' => 'Compiler Design', 'type' => 'LECTURE', 'duration' => 1],
+        ['time' => '10:40 - 11:40', 'code' => 'DSP', 'name' => 'DSP', 'fullname' => 'Digital Signal Processing', 'type' => 'LECTURE', 'duration' => 1],
+        ['time' => '11:40 - 12:40', 'code' => 'OR', 'name' => 'OR', 'fullname' => 'Operations Research', 'type' => 'LECTURE', 'duration' => 1],
+        ['time' => '01:40 - 04:40', 'code' => 'DSP', 'name' => 'DSP LAB', 'fullname' => 'Digital Signal Processing Lab', 'type' => 'LAB', 'duration' => 3],
+    ],
+    'Tuesday' => [
+        ['time' => '08:30 - 09:30', 'code' => 'MQT', 'name' => 'MQT', 'fullname' => 'Modern Quantum Theory', 'type' => 'LECTURE', 'duration' => 1],
+        ['time' => '09:30 - 10:30', 'code' => 'CD', 'name' => 'CD', 'fullname' => 'Compiler Design', 'type' => 'LECTURE', 'duration' => 1],
+        ['time' => '10:40 - 11:40', 'code' => 'COA', 'name' => 'COA', 'fullname' => 'Computer Organization', 'type' => 'LECTURE', 'duration' => 1],
+        ['time' => '11:40 - 12:40', 'code' => 'WT', 'name' => 'WT', 'fullname' => 'Web Technologies', 'type' => 'LECTURE', 'duration' => 1],
+        ['time' => '01:40 - 04:40', 'code' => 'WT', 'name' => 'WT LAB', 'fullname' => 'Web Technologies Lab', 'type' => 'LAB', 'duration' => 3],
+    ],
+    'Wednesday' => [
+        ['time' => '08:30 - 09:30', 'code' => 'MQT', 'name' => 'MQT', 'fullname' => 'Modern Quantum Theory', 'type' => 'LECTURE', 'duration' => 1],
+        ['time' => '09:30 - 10:30', 'code' => 'CD', 'name' => 'CD', 'fullname' => 'Compiler Design', 'type' => 'LECTURE', 'duration' => 1],
+        ['time' => '10:40 - 11:40', 'code' => 'WT', 'name' => 'WT', 'fullname' => 'Web Technologies', 'type' => 'LECTURE', 'duration' => 1],
+        ['time' => '11:40 - 12:40', 'code' => 'OR', 'name' => 'OR', 'fullname' => 'Operations Research', 'type' => 'LECTURE', 'duration' => 1],
+        ['time' => '02:40 - 04:40', 'code' => 'DSP', 'name' => 'DSP', 'fullname' => 'Digital Signal Processing', 'type' => 'LECTURE', 'duration' => 2],
+    ],
+    'Thursday' => [
+        ['time' => '08:30 - 09:30', 'code' => 'MQT', 'name' => 'MQT', 'fullname' => 'Modern Quantum Theory', 'type' => 'LECTURE', 'duration' => 1],
+        ['time' => '09:30 - 10:30', 'code' => 'WT', 'name' => 'WT', 'fullname' => 'Web Technologies', 'type' => 'LECTURE', 'duration' => 1],
+        ['time' => '10:40 - 11:40', 'code' => 'OR', 'name' => 'OR', 'fullname' => 'Operations Research', 'type' => 'LECTURE', 'duration' => 1],
+        ['time' => '11:40 - 12:40', 'code' => 'CD', 'name' => 'CD', 'fullname' => 'Compiler Design', 'type' => 'LECTURE', 'duration' => 1],
+        ['time' => '01:40 - 04:40', 'code' => 'COA', 'name' => 'COA LAB', 'fullname' => 'Computer Organization Lab', 'type' => 'LAB', 'duration' => 3],
+    ],
+    'Friday' => [
+        ['time' => '08:30 - 09:30', 'code' => 'MQT', 'name' => 'MQT', 'fullname' => 'Modern Quantum Theory', 'type' => 'LECTURE', 'duration' => 1],
+        ['time' => '09:30 - 10:30', 'code' => 'WT', 'name' => 'WT', 'fullname' => 'Web Technologies', 'type' => 'LECTURE', 'duration' => 1],
+        ['time' => '10:40 - 11:40', 'code' => 'COA', 'name' => 'COA', 'fullname' => 'Computer Organization', 'type' => 'LECTURE', 'duration' => 1],
+        ['time' => '11:40 - 12:40', 'code' => 'OR', 'name' => 'OR', 'fullname' => 'Operations Research', 'type' => 'LECTURE', 'duration' => 1],
+        ['time' => '02:40 - 04:40', 'code' => 'WT', 'name' => 'WT', 'fullname' => 'Web Technologies', 'type' => 'LECTURE', 'duration' => 2],
+    ],
+    'Saturday' => [
+        ['time' => '08:30 - 09:30', 'code' => 'MQT', 'name' => 'MQT', 'fullname' => 'Modern Quantum Theory', 'type' => 'LECTURE', 'duration' => 1],
+    ]
+]
     ];
 
     // Return timetable for the specific section or default to A
@@ -1100,10 +1102,11 @@ function getLabsForSection($section) {
             ['subject' => 'COA', 'day' => 'Thursday', 'time' => '01:40 - 04:40', 'duration' => 3, 'count' => 2],
             ['subject' => 'DSP', 'day' => 'Friday', 'time' => '01:40 - 04:40', 'duration' => 3, 'count' => 1],
         ],
-        'E' => [
-            ['subject' => 'WT', 'day' => 'Tuesday', 'time' => '01:40 - 04:40', 'duration' => 3, 'count' => 1],
-            ['subject' => 'COA', 'day' => 'Thursday', 'time' => '01:40 - 04:40', 'duration' => 3, 'count' => 2],
-        ]
+       'E' => [
+    ['subject' => 'DSP', 'day' => 'Monday', 'time' => '01:40 - 04:40', 'duration' => 3, 'count' => 1],
+    ['subject' => 'WT', 'day' => 'Tuesday', 'time' => '01:40 - 04:40', 'duration' => 3, 'count' => 1],
+    ['subject' => 'COA', 'day' => 'Thursday', 'time' => '01:40 - 04:40', 'duration' => 3, 'count' => 2],
+]
     ];
 
     return isset($labs[$section]) ? $labs[$section] : [];
