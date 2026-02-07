@@ -692,7 +692,7 @@ include 'header.php';
                     
                     <?php if (!empty($recent_sessions_data)): ?>
                         <div class="text-center mt-3">
-                            <a href="view_all_session.php" class="btn btn-outline-info btn-sm">
+                            <a href="view_all_sessions.php" class="btn btn-outline-info btn-sm">
                                 <i class="fas fa-list me-1"></i> View All Sessions
                             </a>
                             <?php if ($active_count > 0): ?>
