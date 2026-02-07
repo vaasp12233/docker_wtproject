@@ -92,8 +92,8 @@ if ($conn) {
         $student_year = $student['year'] ?? '';
         
         if (!empty($student_department)) {
-            // First, let's get total targeted sessions from subjects table
-            $subjects_query = "SELECT subject_code, subject_name, targeted_sessions, is_lab 
+            // Get total target_sessions from subjects table
+            $subjects_query = "SELECT subject_code, subject_name, target_sessions, is_lab 
                               FROM subjects 
                               WHERE department = ? 
                               AND year = ?";
@@ -107,24 +107,46 @@ if ($conn) {
                     $subjects_info[] = $subject;
                     
                     // Calculate sessions for this subject
-                    $targeted = $subject['targeted_sessions'] ?? 0;
+                    $target = $subject['target_sessions'] ?? 0;
                     $is_lab = $subject['is_lab'] ?? 0;
                     
-                    // If it's a lab, multiply by 3
+                    // If it's a lab, multiply by 3 (1 lab = 3 sessions)
                     if ($is_lab == 1) {
-                        $total_possible_sessions += ($targeted * 3);
+                        $total_possible_sessions += ($target * 3);
                     } else {
-                        $total_possible_sessions += $targeted;
+                        $total_possible_sessions += $target;
                     }
                 }
                 mysqli_stmt_close($stmt3);
             }
             
-            // If above doesn't work, use default calculation
-            if ($total_possible_sessions == 0) {
-                // Default calculation: 5 subjects + 3 labs
-                // Assuming average 15 sessions per subject, 45 sessions per lab (15*3)
-                $total_possible_sessions = (5 * 15) + (3 * 45); // 75 + 135 = 210 sessions
+            // If above doesn't work or returns 0, use default calculation
+            if ($total_possible_sessions == 0 && count($subjects_info) == 0) {
+                // Let's try a different approach - get all subjects
+                $all_subjects_query = "SELECT subject_code, subject_name, target_sessions, is_lab 
+                                      FROM subjects";
+                $all_subjects_result = mysqli_query($conn, $all_subjects_query);
+                if ($all_subjects_result) {
+                    while ($subject = mysqli_fetch_assoc($all_subjects_result)) {
+                        $subjects_info[] = $subject;
+                        
+                        $target = $subject['target_sessions'] ?? 0;
+                        $is_lab = $subject['is_lab'] ?? 0;
+                        
+                        if ($is_lab == 1) {
+                            $total_possible_sessions += ($target * 3);
+                        } else {
+                            $total_possible_sessions += $target;
+                        }
+                    }
+                }
+                
+                // If still 0, use default calculation
+                if ($total_possible_sessions == 0) {
+                    // Default calculation: 5 subjects + 3 labs
+                    // Assuming 15 sessions per subject, 45 per lab (15*3)
+                    $total_possible_sessions = (5 * 15) + (3 * 45); // 75 + 135 = 210 sessions
+                }
             }
         }
     }
@@ -175,25 +197,12 @@ if ($total_possible_sessions > 0) {
 }
 
 // ==================== Calculate FUTURE Classes Needed for 75% ====================
-$future_classes_needed = 0;
 $remaining_sessions_needed = 0;
 
 if ($total_possible_sessions > 0 && $attendance_percentage < 75) {
-    // Formula to calculate future sessions needed:
-    // We assume total sessions will remain the same (fixed curriculum)
-    // Just need to attend more of the remaining sessions
-    
-    // Sessions needed from total to reach 75%
+    // Calculate how many more sessions needed from total to reach 75%
     $sessions_needed_for_75 = ceil($total_possible_sessions * 0.75);
     $remaining_sessions_needed = max(0, $sessions_needed_for_75 - $total_attendance);
-    
-    // Calculate how many future classes at 100% attendance to reach 75%
-    // Assuming some sessions are already over, we calculate remaining
-    $remaining_possible_sessions = $total_possible_sessions - $total_attendance;
-    if ($remaining_possible_sessions > 0) {
-        $required_from_remaining = ceil(($sessions_needed_for_75 - $total_attendance) / $remaining_possible_sessions * 100);
-        $future_classes_needed = ceil($remaining_possible_sessions * ($required_from_remaining / 100));
-    }
 }
 
 // ==================== Format Student ID Display ====================
@@ -704,25 +713,33 @@ $default_avatar = ($gender === 'female') ? 'default_female.png' : 'default.png';
                             <?php 
                             $theory_count = 0;
                             $lab_count = 0;
+                            $theory_sessions = 0;
+                            $lab_sessions = 0;
+                            
                             foreach ($subjects_info as $subject): 
-                                if ($subject['is_lab'] == 1) {
+                                $target = $subject['target_sessions'] ?? 0;
+                                $is_lab = $subject['is_lab'] ?? 0;
+                                
+                                if ($is_lab == 1) {
                                     $lab_count++;
+                                    $lab_sessions += ($target * 3);
                                 } else {
                                     $theory_count++;
+                                    $theory_sessions += $target;
                                 }
                             endforeach; 
                             ?>
                             <div class="subject-item">
                                 <span>Theory Subjects: <strong><?php echo $theory_count; ?></strong></span>
-                                <span>5 subjects expected</span>
+                                <span><?php echo $theory_sessions; ?> sessions</span>
                             </div>
                             <div class="subject-item">
                                 <span>Lab Subjects: <strong><?php echo $lab_count; ?></strong></span>
-                                <span>3 labs expected</span>
+                                <span><?php echo $lab_sessions; ?> sessions</span>
                             </div>
                             <div class="subject-item">
                                 <span>Total Subjects: <strong><?php echo count($subjects_info); ?></strong></span>
-                                <span>8 total expected</span>
+                                <span><?php echo $total_possible_sessions; ?> total sessions</span>
                             </div>
                         </div>
                         <?php endif; ?>
