@@ -147,8 +147,7 @@ if (empty($student['gender'])) {
 // ==================== Calculate Attendance Statistics ====================
 $total_attendance = 0;
 $theory_attendance = 0;
-$lab_attendance_raw = 0;
-$lab_attendance_actual = 0;
+$lab_attendance = 0;
 
 if ($attendance_result) {
     mysqli_data_seek($attendance_result, 0);
@@ -163,17 +162,14 @@ if ($attendance_result) {
         }
         
         if ($is_lab) {
-            $lab_attendance_raw++; // Count each lab session
+            $lab_attendance++; // Count each lab session as 1
         } else {
-            $theory_attendance++; // Count each theory session
+            $theory_attendance++; // Count each theory session as 1
         }
     }
     
-    // Convert lab sessions: 3 raw lab sessions = 1 actual attendance
-    $lab_attendance_actual = floor($lab_attendance_raw / 3);
-    
-    // Total attendance = theory sessions + converted lab sessions
-    $total_attendance = $theory_attendance + $lab_attendance_actual;
+    // Total attendance = theory sessions + lab sessions (both count as 1)
+    $total_attendance = $theory_attendance + $lab_attendance;
     
     // Reset pointer for later use
     mysqli_data_seek($attendance_result, 0);
@@ -183,8 +179,7 @@ if ($attendance_result) {
 // Count how many sessions have actually happened (past sessions)
 $sessions_happened = 0;
 $theory_sessions_happened = 0;
-$lab_sessions_happened_raw = 0;
-$lab_sessions_happened_actual = 0;
+$lab_sessions_happened = 0;
 
 if ($conn) {
     // Get all past sessions
@@ -207,22 +202,19 @@ if ($conn) {
                 strpos($subject_code, 'lab_') !== false ||
                 $session['class_type'] === 'lab') {
                 $is_lab = true;
-                $lab_sessions_happened_raw++; // Count each lab session
+                $lab_sessions_happened++; // Count each lab session as 1
             } else {
-                $theory_sessions_happened++; // Count each theory session
+                $theory_sessions_happened++; // Count each theory session as 1
             }
         }
         
-        // Convert lab sessions: 3 raw lab sessions = 1 actual session
-        $lab_sessions_happened_actual = floor($lab_sessions_happened_raw / 3);
-        
-        // Total sessions happened = theory sessions + converted lab sessions
-        $sessions_happened = $theory_sessions_happened + $lab_sessions_happened_actual;
+        // Total sessions happened = theory sessions + lab sessions (both count as 1)
+        $sessions_happened = $theory_sessions_happened + $lab_sessions_happened;
     }
 }
 
 // ==================== CALCULATE ATTENDANCE PERCENTAGE ====================
-// Attendance % = (converted sessions attended / converted sessions happened) × 100
+// Attendance % = (sessions attended / sessions happened) × 100
 $attendance_percentage = 0;
 if ($sessions_happened > 0) {
     $attendance_percentage = round(($total_attendance / $sessions_happened) * 100, 1);
@@ -751,7 +743,7 @@ $default_avatar = 'default.png';
                         <i class="fas fa-calendar-check"></i> <?php echo $total_attendance; ?>
                     </div>
                     <h6 class="mb-0">Classes Attended</h6>
-                    <small>Converted: <?php echo $theory_attendance; ?> theory + <?php echo $lab_attendance_actual; ?> labs</small>
+                    <small>Total: <?php echo $theory_attendance; ?> theory + <?php echo $lab_attendance; ?> labs</small>
                 </div>
             </div>
             <div class="col-md-4 mb-3">
@@ -760,7 +752,7 @@ $default_avatar = 'default.png';
                         <i class="fas fa-percentage"></i> <?php echo $attendance_percentage; ?>%
                     </div>
                     <h6 class="mb-0">Attendance %</h6>
-                    <div class="small mb-2">(<?php echo $total_attendance; ?>/<?php echo $sessions_happened; ?> converted sessions)</div>
+                    <div class="small mb-2">(<?php echo $total_attendance; ?>/<?php echo $sessions_happened; ?> sessions)</div>
                     <span class="badge bg-<?php echo $attendance_class; ?> attendance-status-badge">
                         <?php echo $attendance_status; ?>
                     </span>
@@ -867,11 +859,7 @@ $default_avatar = 'default.png';
                             </div>
                         </div>
                         <div class="progress-percentage text-center">
-                            <?php echo $attendance_percentage; ?>% (<?php echo $total_attendance; ?>/<?php echo $sessions_happened; ?> converted sessions)
-                            <br>
-                            <small class="text-muted">
-                                Raw: <?php echo ($theory_attendance + $lab_attendance_raw); ?>/<?php echo ($theory_sessions_happened + $lab_sessions_happened_raw); ?> sessions
-                            </small>
+                            <?php echo $attendance_percentage; ?>% (<?php echo $total_attendance; ?>/<?php echo $sessions_happened; ?> sessions)
                         </div>
                         
                         <!-- Subjects Breakdown -->
@@ -887,16 +875,12 @@ $default_avatar = 'default.png';
                             <div class="subject-item">
                                 <span>Lab Sessions <span class="lab-badge">Lab</span></span>
                                 <span>
-                                    <strong><?php echo $lab_attendance_raw; ?></strong> raw sessions /
-                                    <strong><?php echo $lab_sessions_happened_raw; ?></strong> raw total
-                                    <br>
-                                    <small class="text-muted">
-                                        (Converted: <?php echo $lab_attendance_actual; ?>/<?php echo $lab_sessions_happened_actual; ?>)
-                                    </small>
+                                    <strong><?php echo $lab_attendance; ?></strong> attended /
+                                    <strong><?php echo $lab_sessions_happened; ?></strong> total
                                 </span>
                             </div>
                             <div class="subject-item">
-                                <span>Total (Converted)</span>
+                                <span>Total Sessions</span>
                                 <span><strong><?php echo $total_attendance; ?></strong>/<strong><?php echo $sessions_happened; ?></strong> sessions</span>
                             </div>
                             
@@ -917,11 +901,6 @@ $default_avatar = 'default.png';
                                 <?php endforeach; ?>
                             </div>
                             <?php endif; ?>
-                            
-                            <div class="session-info mt-2">
-                                <i class="fas fa-info-circle me-1"></i>
-                                Note: 3 lab sessions = 1 actual attendance mark.
-                            </div>
                         </div>
                     </div>
                     <div class="col-md-6">
@@ -954,13 +933,11 @@ $default_avatar = 'default.png';
                             </div>
                             <div class="subject-item">
                                 <span>To Attend (Labs)</span>
-                                <span><?php echo $lab_sessions; ?> raw sessions</span>
-                                <br>
-                                <small class="text-muted">(<?php echo floor($lab_sessions / 3); ?> converted)</small>
+                                <span><?php echo $lab_sessions; ?> sessions</span>
                             </div>
                             <div class="subject-item">
                                 <span>Already Attended</span>
-                                <span><?php echo $total_attendance; ?> converted sessions</span>
+                                <span><?php echo $total_attendance; ?> sessions</span>
                             </div>
                             <div class="subject-item">
                                 <span>Remaining All</span>
@@ -1018,7 +995,6 @@ $default_avatar = 'default.png';
                                         <th>Type</th>
                                         <th>Time</th>
                                         <th>Status</th>
-                                        <th>Weight</th>
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -1051,14 +1027,6 @@ $default_avatar = 'default.png';
                                                 $session_type_display = "Lab";
                                             }
                                         }
-                                        
-                                        // Determine weight
-                                        $weight = "1.0";
-                                        $weight_class = "badge bg-primary";
-                                        if ($is_lab) {
-                                            $weight = "1/3";
-                                            $weight_class = "badge bg-info";
-                                        }
                                     ?>
                                     <tr>
                                         <td>
@@ -1090,19 +1058,6 @@ $default_avatar = 'default.png';
                                             <span class="badge bg-success">
                                                 <i class="fas fa-check-circle me-1"></i> Present
                                             </span>
-                                        </td>
-                                        <td>
-                                            <span class="<?php echo $weight_class; ?>">
-                                                <?php echo $weight; ?>
-                                            </span>
-                                            <br>
-                                            <small class="text-muted session-info">
-                                                <?php if ($is_lab): ?>
-                                                    (3 sessions = 1 mark)
-                                                <?php else: ?>
-                                                    (1 session = 1 mark)
-                                                <?php endif; ?>
-                                            </small>
                                         </td>
                                     </tr>
                                     <?php endwhile; ?>
