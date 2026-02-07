@@ -87,10 +87,10 @@ if ($conn) {
         }
         
         // Get total sessions count for attendance percentage
-        $total_sessions_query = "SELECT COUNT(*) as total_sessions FROM sessions 
-                                WHERE subject_id IN (
-                                    SELECT subject_id FROM student_subjects WHERE student_id = ?
-                                )";
+        // FIXED: Using a simpler query that doesn't require student_subjects table
+        $total_sessions_query = "SELECT COUNT(DISTINCT session_id) as total_sessions 
+                                FROM attendance_records 
+                                WHERE student_id = ?";
         $stmt3 = mysqli_prepare($conn, $total_sessions_query);
         if ($stmt3) {
             mysqli_stmt_bind_param($stmt3, "s", $student_id);
@@ -120,15 +120,17 @@ if ($attendance_result) {
 }
 
 // Calculate attendance percentage
+// For now, we'll use a simplified calculation
 $attendance_percentage = 0;
-if ($total_sessions > 0) {
-    $attendance_percentage = round(($total_attendance / $total_sessions) * 100, 1);
+$total_possible_sessions = max($total_sessions, $total_attendance); // Use whichever is larger
+if ($total_possible_sessions > 0) {
+    $attendance_percentage = round(($total_attendance / $total_possible_sessions) * 100, 1);
 }
 
 // Determine attendance status
 $attendance_status = "No Data";
 $attendance_class = "secondary";
-if ($total_sessions > 0) {
+if ($total_possible_sessions > 0) {
     if ($attendance_percentage >= 85) {
         $attendance_status = "Excellent";
         $attendance_class = "success";
@@ -149,8 +151,8 @@ if ($total_sessions > 0) {
 
 // Calculate classes needed for 75% attendance
 $classes_needed = 0;
-if ($total_sessions > 0 && $attendance_percentage < 75) {
-    $target_attendance = ceil($total_sessions * 0.75);
+if ($total_possible_sessions > 0 && $attendance_percentage < 75) {
+    $target_attendance = ceil($total_possible_sessions * 0.75);
     $classes_needed = max(0, $target_attendance - $total_attendance);
 }
 
@@ -561,7 +563,7 @@ $default_avatar = ($gender === 'female') ? 'default_female.png' : 'default.png';
                         <i class="fas fa-calendar-check"></i> <?php echo $total_attendance; ?>
                     </div>
                     <h6 class="mb-0">Classes Attended</h6>
-                    <small>Out of <?php echo $total_sessions; ?> total sessions</small>
+                    <small>Total attendance records</small>
                 </div>
             </div>
             <div class="col-md-4 mb-3">
@@ -605,12 +607,12 @@ $default_avatar = ($gender === 'female') ? 'default_female.png' : 'default.png';
                             </div>
                         </div>
                         <div class="progress-percentage text-center">
-                            <?php echo $attendance_percentage; ?>% (<?php echo $total_attendance; ?>/<?php echo $total_sessions; ?>)
+                            <?php echo $attendance_percentage; ?>% (<?php echo $total_attendance; ?> attended)
                         </div>
                     </div>
                     <div class="col-md-6">
-                        <h6>Target: 75% Attendance</h6>
-                        <?php if ($attendance_percentage < 75 && $total_sessions > 0): ?>
+                        <h6>Attendance Target</h6>
+                        <?php if ($attendance_percentage < 75 && $total_possible_sessions > 0): ?>
                             <div class="alert alert-warning">
                                 <i class="fas fa-exclamation-triangle me-2"></i>
                                 <strong>Need <?php echo $classes_needed; ?> more classes</strong> to reach 75% attendance
@@ -618,15 +620,15 @@ $default_avatar = ($gender === 'female') ? 'default_female.png' : 'default.png';
                             <p class="small text-muted">
                                 Attend the next <?php echo $classes_needed; ?> classes regularly to improve your attendance percentage.
                             </p>
-                        <?php elseif ($attendance_percentage >= 75): ?>
+                        <?php elseif ($attendance_percentage >= 75 && $attendance_percentage > 0): ?>
                             <div class="alert alert-success">
                                 <i class="fas fa-check-circle me-2"></i>
-                                <strong>Congratulations!</strong> You have already achieved the 75% attendance target.
+                                <strong>Congratulations!</strong> You have good attendance (<?php echo $attendance_percentage; ?>%).
                             </div>
                         <?php else: ?>
                             <div class="alert alert-secondary">
                                 <i class="fas fa-info-circle me-2"></i>
-                                Attendance data is being calculated. Keep attending classes regularly.
+                                Keep attending classes regularly to build your attendance record.
                             </div>
                         <?php endif; ?>
                     </div>
