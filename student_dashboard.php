@@ -55,7 +55,7 @@ if (ob_get_length() > 0 && !headers_sent()) {
 // ==================== Database operations with prepared statements ====================
 $student = null;
 $attendance_result = null;
-$total_sessions = 0;
+$total_sessions_conducted = 0;
 $attendance_stats = [];
 
 // Get student details - USING PREPARED STATEMENTS
@@ -86,19 +86,37 @@ if ($conn) {
             mysqli_stmt_close($stmt2);
         }
         
-        // Get total sessions count for attendance percentage
-        // FIXED: Using a simpler query that doesn't require student_subjects table
-        $total_sessions_query = "SELECT COUNT(DISTINCT session_id) as total_sessions 
-                                FROM attendance_records 
-                                WHERE student_id = ?";
-        $stmt3 = mysqli_prepare($conn, $total_sessions_query);
-        if ($stmt3) {
-            mysqli_stmt_bind_param($stmt3, "s", $student_id);
-            mysqli_stmt_execute($stmt3);
-            $result3 = mysqli_stmt_get_result($stmt3);
-            $total_sessions_row = mysqli_fetch_assoc($result3);
-            $total_sessions = $total_sessions_row['total_sessions'] ?? 0;
-            mysqli_stmt_close($stmt3);
+        // Get student's section and department
+        $student_section = $student['section'] ?? '';
+        $student_department = $student['student_department'] ?? '';
+        
+        // Get total sessions conducted for student's department and section
+        // This gives us the total possible sessions student could have attended
+        if (!empty($student_department) && !empty($student_section)) {
+            $total_sessions_query = "SELECT COUNT(*) as total_sessions 
+                                    FROM sessions s
+                                    JOIN subjects sub ON s.subject_id = sub.subject_id
+                                    WHERE sub.department = ? 
+                                    AND s.section = ?";
+            $stmt3 = mysqli_prepare($conn, $total_sessions_query);
+            if ($stmt3) {
+                mysqli_stmt_bind_param($stmt3, "ss", $student_department, $student_section);
+                mysqli_stmt_execute($stmt3);
+                $result3 = mysqli_stmt_get_result($stmt3);
+                $total_sessions_row = mysqli_fetch_assoc($result3);
+                $total_sessions_conducted = $total_sessions_row['total_sessions'] ?? 0;
+                mysqli_stmt_close($stmt3);
+            }
+        }
+        
+        // Alternative: If above doesn't work, get total sessions from all subjects
+        if ($total_sessions_conducted == 0) {
+            $total_sessions_query2 = "SELECT COUNT(*) as total_sessions FROM sessions";
+            $result4 = mysqli_query($conn, $total_sessions_query2);
+            if ($result4) {
+                $total_sessions_row2 = mysqli_fetch_assoc($result4);
+                $total_sessions_conducted = $total_sessions_row2['total_sessions'] ?? 0;
+            }
         }
     }
 }
@@ -120,17 +138,15 @@ if ($attendance_result) {
 }
 
 // Calculate attendance percentage
-// For now, we'll use a simplified calculation
 $attendance_percentage = 0;
-$total_possible_sessions = max($total_sessions, $total_attendance); // Use whichever is larger
-if ($total_possible_sessions > 0) {
-    $attendance_percentage = round(($total_attendance / $total_possible_sessions) * 100, 1);
+if ($total_sessions_conducted > 0) {
+    $attendance_percentage = round(($total_attendance / $total_sessions_conducted) * 100, 1);
 }
 
 // Determine attendance status
 $attendance_status = "No Data";
 $attendance_class = "secondary";
-if ($total_possible_sessions > 0) {
+if ($total_sessions_conducted > 0) {
     if ($attendance_percentage >= 85) {
         $attendance_status = "Excellent";
         $attendance_class = "success";
@@ -149,11 +165,21 @@ if ($total_possible_sessions > 0) {
     }
 }
 
-// Calculate classes needed for 75% attendance
-$classes_needed = 0;
-if ($total_possible_sessions > 0 && $attendance_percentage < 75) {
-    $target_attendance = ceil($total_possible_sessions * 0.75);
-    $classes_needed = max(0, $target_attendance - $total_attendance);
+// ==================== Calculate FUTURE Classes Needed for 75% ====================
+$future_classes_needed = 0;
+$remaining_sessions_needed = 0;
+
+if ($total_sessions_conducted > 0 && $attendance_percentage < 75) {
+    // Formula to calculate future sessions needed:
+    // (current_attended + x) / (total_conducted + x) = 0.75
+    // Solving for x: x = (0.75 * total_conducted - current_attended) / 0.25
+    
+    $future_classes_needed = ceil((0.75 * $total_sessions_conducted - $total_attendance) / 0.25);
+    $future_classes_needed = max(0, $future_classes_needed); // Ensure not negative
+    
+    // Also calculate remaining sessions from current total to reach 75%
+    $sessions_needed_for_75 = ceil($total_sessions_conducted * 0.75);
+    $remaining_sessions_needed = max(0, $sessions_needed_for_75 - $total_attendance);
 }
 
 // ==================== Format Student ID Display ====================
@@ -458,6 +484,24 @@ $default_avatar = ($gender === 'female') ? 'default_female.png' : 'default.png';
         font-weight: bold;
         margin-top: 5px;
     }
+    
+    /* Future Classes Calculation */
+    .future-classes-box {
+        background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+        border-radius: 10px;
+        padding: 20px;
+        margin-top: 20px;
+        border-left: 5px solid #ffc107;
+    }
+    
+    .calculation-formula {
+        font-family: monospace;
+        background: #f8f9fa;
+        padding: 10px;
+        border-radius: 5px;
+        font-size: 0.9rem;
+        margin-top: 10px;
+    }
 </style>
 
 <div class="row">
@@ -563,7 +607,7 @@ $default_avatar = ($gender === 'female') ? 'default_female.png' : 'default.png';
                         <i class="fas fa-calendar-check"></i> <?php echo $total_attendance; ?>
                     </div>
                     <h6 class="mb-0">Classes Attended</h6>
-                    <small>Total attendance records</small>
+                    <small>Out of <?php echo $total_sessions_conducted; ?> total</small>
                 </div>
             </div>
             <div class="col-md-4 mb-3">
@@ -607,28 +651,45 @@ $default_avatar = ($gender === 'female') ? 'default_female.png' : 'default.png';
                             </div>
                         </div>
                         <div class="progress-percentage text-center">
-                            <?php echo $attendance_percentage; ?>% (<?php echo $total_attendance; ?> attended)
+                            <?php echo $attendance_percentage; ?>% (<?php echo $total_attendance; ?>/<?php echo $total_sessions_conducted; ?> sessions)
                         </div>
                     </div>
                     <div class="col-md-6">
-                        <h6>Attendance Target</h6>
-                        <?php if ($attendance_percentage < 75 && $total_possible_sessions > 0): ?>
+                        <h6>Target: 75% Attendance</h6>
+                        <?php if ($attendance_percentage < 75 && $total_sessions_conducted > 0): ?>
                             <div class="alert alert-warning">
-                                <i class="fas fa-exclamation-triangle me-2"></i>
-                                <strong>Need <?php echo $classes_needed; ?> more classes</strong> to reach 75% attendance
+                                <i class="fas fa-calculator me-2"></i>
+                                <strong>To reach 75%:</strong><br>
+                                • Need <?php echo $remaining_sessions_needed; ?> more sessions from current total<br>
+                                • Or attend <?php echo $future_classes_needed; ?> future sessions perfectly
                             </div>
-                            <p class="small text-muted">
-                                Attend the next <?php echo $classes_needed; ?> classes regularly to improve your attendance percentage.
-                            </p>
+                            <div class="future-classes-box">
+                                <h6><i class="fas fa-lightbulb me-2"></i>Future Attendance Strategy:</h6>
+                                <p class="mb-2">To maintain 75% attendance, you need to attend:</p>
+                                <ul class="mb-3">
+                                    <li><strong><?php echo $future_classes_needed; ?> consecutive future classes</strong> at 100% attendance rate</li>
+                                    <li>OR attend all remaining classes this semester</li>
+                                </ul>
+                                <div class="calculation-formula">
+                                    Formula: (<?php echo $total_attendance; ?> + x) / (<?php echo $total_sessions_conducted; ?> + x) = 0.75<br>
+                                    Solution: x = <?php echo $future_classes_needed; ?> future classes
+                                </div>
+                            </div>
                         <?php elseif ($attendance_percentage >= 75 && $attendance_percentage > 0): ?>
                             <div class="alert alert-success">
-                                <i class="fas fa-check-circle me-2"></i>
-                                <strong>Congratulations!</strong> You have good attendance (<?php echo $attendance_percentage; ?>%).
+                                <i class="fas fa-trophy me-2"></i>
+                                <strong>Excellent!</strong> You've already achieved 75% attendance target.<br>
+                                Current: <?php echo $attendance_percentage; ?>% (<?php echo $total_attendance; ?>/<?php echo $total_sessions_conducted; ?>)
                             </div>
+                            <p class="small text-muted">
+                                <i class="fas fa-info-circle me-1"></i>
+                                Maintain regular attendance to keep your percentage high.
+                            </p>
                         <?php else: ?>
                             <div class="alert alert-secondary">
                                 <i class="fas fa-info-circle me-2"></i>
-                                Keep attending classes regularly to build your attendance record.
+                                Attendance calculation requires more data.<br>
+                                Keep attending classes regularly.
                             </div>
                         <?php endif; ?>
                     </div>
