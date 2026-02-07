@@ -1212,7 +1212,7 @@ function printReport() {
     location.reload();
 }
 
-// Simple Excel Export
+// FIXED: Excel Export - Prevents date conversion issue
 function exportToExcel() {
     try {
         // Get the table
@@ -1221,14 +1221,17 @@ function exportToExcel() {
         // Clone the table to avoid modifying the original
         const tableClone = table.cloneNode(true);
         
-        // Remove action column if it exists
-        const headerRow = tableClone.querySelector('thead tr');
-        const lastHeaderCell = headerRow.querySelector('th:last-child');
-        if (lastHeaderCell && lastHeaderCell.textContent.includes('Actions')) {
-            headerRow.removeChild(lastHeaderCell);
-        }
+        // Clean up table before conversion
+        // 1. Remove action column
+        const headerRows = tableClone.querySelectorAll('thead tr');
+        headerRows.forEach(headerRow => {
+            const lastHeaderCell = headerRow.querySelector('th:last-child');
+            if (lastHeaderCell && lastHeaderCell.textContent.includes('Actions')) {
+                headerRow.removeChild(lastHeaderCell);
+            }
+        });
         
-        // Remove action cells from each row
+        // 2. Remove action cells from each row
         tableClone.querySelectorAll('tbody tr').forEach(row => {
             const lastCell = row.querySelector('td:last-child');
             if (lastCell && lastCell.querySelector('.btn-group')) {
@@ -1236,8 +1239,64 @@ function exportToExcel() {
             }
         });
         
+        // 3. Clean up header text
+        tableClone.querySelectorAll('thead th').forEach(th => {
+            let headerText = th.textContent.trim();
+            // Remove line breaks and extra spaces
+            headerText = headerText.replace(/\n/g, ' ').replace(/\s+/g, ' ').trim();
+            // Remove session count from subject headers
+            if (headerText.includes('(')) {
+                headerText = headerText.replace(/\(.*\)/, '').trim();
+            }
+            th.textContent = headerText;
+        });
+        
+        // 4. Process data rows to prevent date conversion
+        tableClone.querySelectorAll('tbody tr').forEach(row => {
+            const cells = row.querySelectorAll('td');
+            cells.forEach((cell, cellIndex) => {
+                let cellText = cell.textContent.trim();
+                
+                // Clean up text
+                cellText = cellText.replace(/\s+/g, ' ').trim();
+                
+                // For subject and overall percentage cells (skip first 6 columns which are student info)
+                if (cellIndex >= 6) {
+                    // Extract just the percentage number (remove everything after %)
+                    const percentageMatch = cellText.match(/(\d+(?:\.\d+)?%)/);
+                    if (percentageMatch) {
+                        cellText = percentageMatch[0];
+                    }
+                    
+                    // For cells with attendance counts like "1/2", format to prevent date conversion
+                    const countMatch = cellText.match(/(\d+)\/(\d+)/);
+                    if (countMatch) {
+                        // Format as "1 of 2" instead of "1/2" to prevent date conversion
+                        cellText = `${countMatch[1]} of ${countMatch[2]}`;
+                    }
+                }
+                
+                cell.textContent = cellText;
+            });
+        });
+        
         // Convert table to workbook
         const workbook = XLSX.utils.table_to_book(tableClone, {sheet: "Attendance"});
+        
+        // Get the worksheet
+        const worksheet = workbook.Sheets["Attendance"];
+        
+        // Set column widths for better readability
+        const maxWidth = 30;
+        const wscols = [];
+        const headerCells = tableClone.querySelectorAll('thead tr:first-child th');
+        headerCells.forEach((th) => {
+            const text = th.textContent || '';
+            const width = Math.min(maxWidth, Math.max(10, text.length * 1.2));
+            wscols.push({wch: width});
+        });
+        
+        worksheet['!cols'] = wscols;
         
         // Add metadata
         if (!workbook.Props) workbook.Props = {};
@@ -1250,7 +1309,7 @@ function exportToExcel() {
         XLSX.writeFile(workbook, fileName);
         
         // Show success message
-        alert('Excel file downloaded successfully!');
+        alert('Excel file downloaded successfully! Attendance counts are formatted to prevent date conversion.');
         
     } catch (error) {
         console.error('Excel export error:', error);
@@ -1258,37 +1317,60 @@ function exportToExcel() {
     }
 }
 
-// Simple CSV Export
+// FIXED: CSV Export - Prevents date conversion issue
 function exportToCSV() {
     try {
         let csv = [];
         
-        // Get table headers
+        // Get table headers (clean them up)
         const headers = [];
-        document.querySelectorAll('#attendanceTable thead tr:first-child th').forEach(th => {
+        document.querySelectorAll('#attendanceTable thead tr:first-child th').forEach((th, index) => {
             // Skip action column
             if (!th.textContent.includes('Actions')) {
                 let headerText = th.textContent.trim();
                 // Clean up header text
-                headerText = headerText.replace(/\n/g, ' ').replace(/\s+/g, ' ');
+                headerText = headerText.replace(/\n/g, ' ').replace(/\s+/g, ' ').trim();
+                // Remove session count from subject headers
+                if (headerText.includes('(')) {
+                    headerText = headerText.replace(/\(.*\)/, '').trim();
+                }
                 headers.push(headerText);
             }
         });
         csv.push(headers.join(','));
         
-        // Get table rows data
+        // Get table rows data (clean up to prevent date conversion)
         document.querySelectorAll('#attendanceTable tbody tr').forEach(row => {
             const rowData = [];
             row.querySelectorAll('td').forEach((td, index) => {
                 // Skip action column (last column)
                 if (index < row.querySelectorAll('td').length - 1) {
                     let cellText = td.textContent.trim();
-                    // Remove any extra whitespace and newlines
-                    cellText = cellText.replace(/\n/g, ' ').replace(/\s+/g, ' ');
-                    // Handle commas in text
-                    if (cellText.includes(',') || cellText.includes('"')) {
+                    
+                    // Clean up text
+                    cellText = cellText.replace(/\n/g, ' ').replace(/\s+/g, ' ').trim();
+                    
+                    // For subject and overall data (skip first 6 columns which are student info)
+                    if (index >= 6) {
+                        // Extract just the percentage number
+                        const percentageMatch = cellText.match(/(\d+(?:\.\d+)?%)/);
+                        if (percentageMatch) {
+                            cellText = percentageMatch[0];
+                        }
+                        
+                        // For attendance counts, format to prevent date conversion
+                        const countMatch = cellText.match(/(\d+)\s*\/\s*(\d+)/);
+                        if (countMatch) {
+                            // Format as "X of Y" instead of "X/Y" to prevent Excel date conversion
+                            cellText = `${countMatch[1]} of ${countMatch[2]}`;
+                        }
+                    }
+                    
+                    // Handle commas and quotes in text for CSV
+                    if (cellText.includes(',') || cellText.includes('"') || cellText.includes('\n')) {
                         cellText = '"' + cellText.replace(/"/g, '""') + '"';
                     }
+                    
                     rowData.push(cellText);
                 }
             });
@@ -1304,7 +1386,7 @@ function exportToCSV() {
         saveAs(blob, fileName);
         
         // Show success message
-        alert('CSV file downloaded successfully!');
+        alert('CSV file downloaded successfully! Attendance counts are formatted to prevent date conversion.');
         
     } catch (error) {
         console.error('CSV export error:', error);
