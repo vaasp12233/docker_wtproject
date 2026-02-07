@@ -2,7 +2,7 @@
 // bulk_download.php
 ob_start(); 
 require_once 'config.php';
-session_start(); // Add session start
+session_start();
 
 // Security check - faculty only
 if (!isset($_SESSION['faculty_id']) || $_SESSION['role'] !== 'faculty') {
@@ -14,7 +14,7 @@ $faculty_id = $_SESSION['faculty_id'];
 $page_title = "Bulk Download Students Attendance";
 include 'header.php';
 
-// Get faculty details using prepared statement
+// Get faculty details
 $faculty_query = "SELECT * FROM faculty WHERE faculty_id = ?";
 $faculty_stmt = mysqli_prepare($conn, $faculty_query);
 mysqli_stmt_bind_param($faculty_stmt, "s", $faculty_id);
@@ -23,7 +23,7 @@ $faculty_result = mysqli_stmt_get_result($faculty_stmt);
 $faculty = mysqli_fetch_assoc($faculty_result);
 mysqli_stmt_close($faculty_stmt);
 
-// Get all subjects taught by this faculty using prepared statement
+// Get all subjects taught by this faculty
 $subjects_query = "SELECT DISTINCT s.subject_id, s.subject_code, s.subject_name 
                    FROM sessions se 
                    JOIN subjects s ON se.subject_id = s.subject_id 
@@ -34,19 +34,21 @@ mysqli_stmt_bind_param($subjects_stmt, "s", $faculty_id);
 mysqli_stmt_execute($subjects_stmt);
 $subjects_result = mysqli_stmt_get_result($subjects_stmt);
 
-// Store subjects in array for later use and reset pointer
-$subjects_array = [];
-$subjects_for_display = []; // Store for display use
+$subjects_for_display = [];
 while ($subject = mysqli_fetch_assoc($subjects_result)) {
-    $subjects_array[$subject['subject_id']] = $subject;
-    $subjects_for_display[] = $subject; // Store for display
+    $subjects_for_display[] = $subject;
 }
+mysqli_stmt_close($subjects_stmt);
 
 // Get all sections
 $sections_query = "SELECT DISTINCT section FROM students WHERE section != '' ORDER BY section";
 $sections_result = mysqli_query($conn, $sections_query);
+$sections_data = [];
+while($section = mysqli_fetch_assoc($sections_result)) {
+    $sections_data[] = $section;
+}
 
-// Initialize filter variables with sanitization
+// Initialize filter variables
 $subject_filter = isset($_GET['subject_id']) ? intval($_GET['subject_id']) : 0;
 $section_filter = isset($_GET['section']) ? mysqli_real_escape_string($conn, trim($_GET['section'])) : '';
 $date_from = isset($_GET['date_from']) ? mysqli_real_escape_string($conn, trim($_GET['date_from'])) : date('Y-m-d', strtotime('-90 days'));
@@ -55,7 +57,7 @@ $search_query = isset($_GET['search']) ? mysqli_real_escape_string($conn, trim($
 $min_attendance = isset($_GET['min_attendance']) ? intval($_GET['min_attendance']) : 0;
 $max_attendance = isset($_GET['max_attendance']) ? intval($_GET['max_attendance']) : 100;
 
-// Validate date format
+// Validate inputs
 if (!empty($date_from) && !preg_match('/^\d{4}-\d{2}-\d{2}$/', $date_from)) {
     $date_from = date('Y-m-d', strtotime('-90 days'));
 }
@@ -63,7 +65,6 @@ if (!empty($date_to) && !preg_match('/^\d{4}-\d{2}-\d{2}$/', $date_to)) {
     $date_to = date('Y-m-d');
 }
 
-// Validate attendance range
 if ($min_attendance < 0) $min_attendance = 0;
 if ($max_attendance > 100) $max_attendance = 100;
 if ($min_attendance > $max_attendance) {
@@ -72,166 +73,123 @@ if ($min_attendance > $max_attendance) {
     $max_attendance = $temp;
 }
 
-// Get all students with their basic info using prepared statement
-$students_query = "SELECT 
+// OPTIMIZED QUERY: Get all students with attendance data in ONE query
+$student_query = "SELECT 
                     s.student_id,
                     s.student_name,
                     s.section,
                     s.student_department,
-                    s.id_number
+                    s.id_number,
+                    sub.subject_id,
+                    sub.subject_code,
+                    sub.subject_name,
+                    COUNT(DISTINCT ses.session_id) as total_sessions,
+                    COUNT(DISTINCT ar.record_id) as attended_sessions
                    FROM students s
+                   CROSS JOIN subjects sub
+                   LEFT JOIN sessions ses ON sub.subject_id = ses.subject_id 
+                        AND ses.faculty_id = ?
+                        AND (? = '' OR DATE(ses.start_time) >= ?)
+                        AND (? = '' OR DATE(ses.start_time) <= ?)
+                        AND (? = 0 OR sub.subject_id = ?)
+                   LEFT JOIN attendance_records ar ON ar.student_id = s.student_id 
+                        AND ar.session_id = ses.session_id
+                        AND (? = '' OR DATE(ar.marked_at) >= ?)
+                        AND (? = '' OR DATE(ar.marked_at) <= ?)
                    WHERE 1=1";
 
-$students_params = [];
-$students_param_types = "";
+$student_params = [
+    $faculty_id,                    // ses.faculty_id
+    $date_from, $date_from,         // start_time >=
+    $date_to, $date_to,             // start_time <=
+    $subject_filter, $subject_filter, // subject filter
+    $date_from, $date_from,         // marked_at >=
+    $date_to, $date_to              // marked_at <=
+];
+$student_param_types = "sssssiiissss";
 
 if (!empty($section_filter)) {
-    $students_query .= " AND s.section = ?";
-    $students_params[] = $section_filter;
-    $students_param_types .= "s";
+    $student_query .= " AND s.section = ?";
+    $student_params[] = $section_filter;
+    $student_param_types .= "s";
 }
 
 if (!empty($search_query)) {
-    $students_query .= " AND (s.student_name LIKE ? OR s.student_id LIKE ? OR s.id_number LIKE ?)";
-    $students_params[] = "%$search_query%";
-    $students_params[] = "%$search_query%";
-    $students_params[] = "%$search_query%";
-    $students_param_types .= "sss";
+    $student_query .= " AND (s.student_name LIKE ? OR s.student_id LIKE ? OR s.id_number LIKE ?)";
+    $student_params[] = "%$search_query%";
+    $student_params[] = "%$search_query%";
+    $student_params[] = "%$search_query%";
+    $student_param_types .= "sss";
 }
 
-$students_query .= " ORDER BY s.section, s.student_name";
+$student_query .= " GROUP BY s.student_id, sub.subject_id
+                   ORDER BY s.section, s.student_name, sub.subject_name";
 
-$students_stmt = mysqli_prepare($conn, $students_query);
-if (!empty($students_params)) {
-    mysqli_stmt_bind_param($students_stmt, $students_param_types, ...$students_params);
-}
-mysqli_stmt_execute($students_stmt);
-$students_result = mysqli_stmt_get_result($students_stmt);
+$student_stmt = mysqli_prepare($conn, $student_query);
+mysqli_stmt_bind_param($student_stmt, $student_param_types, ...$student_params);
+mysqli_stmt_execute($student_stmt);
+$student_result = mysqli_stmt_get_result($student_stmt);
 
-// Get total sessions for each subject using prepared statement
-$subject_sessions = [];
-$total_subject_sessions_query = "SELECT 
-                                sub.subject_id,
-                                sub.subject_code,
-                                sub.subject_name,
-                                COUNT(DISTINCT ses.session_id) as total_sessions
-                               FROM sessions ses
-                               JOIN subjects sub ON ses.subject_id = sub.subject_id
-                               WHERE ses.faculty_id = ?";
-                               
-$subject_session_params = [$faculty_id];
-$subject_session_param_types = "s";
-
-if (!empty($date_from) && !empty($date_to)) {
-    $total_subject_sessions_query .= " AND DATE(ses.start_time) BETWEEN ? AND ?";
-    $subject_session_params[] = $date_from;
-    $subject_session_params[] = $date_to;
-    $subject_session_param_types .= "ss";
-}
-
-if ($subject_filter > 0) {
-    $total_subject_sessions_query .= " AND sub.subject_id = ?";
-    $subject_session_params[] = $subject_filter;
-    $subject_session_param_types .= "i";
-}
-
-$total_subject_sessions_query .= " GROUP BY sub.subject_id, sub.subject_code, sub.subject_name";
-
-$subject_sessions_stmt = mysqli_prepare($conn, $total_subject_sessions_query);
-mysqli_stmt_bind_param($subject_sessions_stmt, $subject_session_param_types, ...$subject_session_params);
-mysqli_stmt_execute($subject_sessions_stmt);
-$subject_sessions_result = mysqli_stmt_get_result($subject_sessions_stmt);
-
-while ($subject_session = mysqli_fetch_assoc($subject_sessions_result)) {
-    $subject_sessions[$subject_session['subject_id']] = $subject_session;
-}
-mysqli_stmt_close($subject_sessions_stmt);
-
-// Prepare data structure for student attendance
+// Process student data
 $student_attendance_data = [];
-$subject_ids = [];
+$subject_sessions = []; // Store total sessions per subject
 
-// Get all subject IDs for this faculty using prepared statement
-$subject_ids_query = "SELECT DISTINCT subject_id FROM sessions WHERE faculty_id = ?";
-$subject_ids_params = [$faculty_id];
-$subject_ids_param_types = "s";
-
-if ($subject_filter > 0) {
-    $subject_ids_query .= " AND subject_id = ?";
-    $subject_ids_params[] = $subject_filter;
-    $subject_ids_param_types .= "i";
-}
-
-$subject_ids_stmt = mysqli_prepare($conn, $subject_ids_query);
-mysqli_stmt_bind_param($subject_ids_stmt, $subject_ids_param_types, ...$subject_ids_params);
-mysqli_stmt_execute($subject_ids_stmt);
-$subject_ids_result = mysqli_stmt_get_result($subject_ids_stmt);
-while ($subject_row = mysqli_fetch_assoc($subject_ids_result)) {
-    $subject_ids[] = $subject_row['subject_id'];
-}
-mysqli_stmt_close($subject_ids_stmt);
-
-// Now get attendance data for each student using prepared statements
-while ($student = mysqli_fetch_assoc($students_result)) {
-    $student_id = $student['student_id'];
-    $student_attendance_data[$student_id] = [
-        'info' => $student,
-        'subjects' => [],
-        'total_attended' => 0,
-        'total_sessions' => 0,
-        'overall_percentage' => 0
+while ($row = mysqli_fetch_assoc($student_result)) {
+    $student_id = $row['student_id'];
+    $subject_id = $row['subject_id'];
+    
+    // Initialize student data if not exists
+    if (!isset($student_attendance_data[$student_id])) {
+        $student_attendance_data[$student_id] = [
+            'info' => [
+                'student_id' => $row['student_id'],
+                'student_name' => $row['student_name'],
+                'section' => $row['section'],
+                'student_department' => $row['student_department'],
+                'id_number' => $row['id_number']
+            ],
+            'subjects' => [],
+            'total_attended' => 0,
+            'total_sessions' => 0,
+            'overall_percentage' => 0
+        ];
+    }
+    
+    // Store subject session count
+    if (!isset($subject_sessions[$subject_id])) {
+        $subject_sessions[$subject_id] = [
+            'subject_id' => $subject_id,
+            'subject_code' => $row['subject_code'],
+            'subject_name' => $row['subject_name'],
+            'total_sessions' => $row['total_sessions']
+        ];
+    }
+    
+    // Calculate subject percentage
+    $total_sessions = $row['total_sessions'] ?: 0;
+    $attended = $row['attended_sessions'] ?: 0;
+    $percentage = ($total_sessions > 0) ? round(($attended / $total_sessions) * 100, 1) : 0;
+    
+    $student_attendance_data[$student_id]['subjects'][$subject_id] = [
+        'attended' => $attended,
+        'total' => $total_sessions,
+        'percentage' => $percentage
     ];
     
-    // For each subject, get attendance count using prepared statement
-    foreach ($subject_ids as $subject_id) {
-        $attendance_count_query = "SELECT COUNT(*) as attended_sessions
-                                  FROM attendance_records ar
-                                  JOIN sessions ses ON ar.session_id = ses.session_id
-                                  WHERE ar.student_id = ?
-                                  AND ses.subject_id = ?
-                                  AND ses.faculty_id = ?";
-        
-        $attendance_params = [$student_id, $subject_id, $faculty_id];
-        
-        if (!empty($date_from) && !empty($date_to)) {
-            $attendance_count_query .= " AND DATE(ar.marked_at) BETWEEN ? AND ?";
-            $attendance_params[] = $date_from;
-            $attendance_params[] = $date_to;
-        }
-        
-        $attendance_stmt = mysqli_prepare($conn, $attendance_count_query);
-        $attendance_param_types = "sis";
-        if (!empty($date_from) && !empty($date_to)) {
-            $attendance_param_types .= "ss";
-        }
-        mysqli_stmt_bind_param($attendance_stmt, $attendance_param_types, ...$attendance_params);
-        mysqli_stmt_execute($attendance_stmt);
-        $attendance_count_result = mysqli_stmt_get_result($attendance_stmt);
-        $attendance_count = mysqli_fetch_assoc($attendance_count_result);
-        mysqli_stmt_close($attendance_stmt);
-        
-        $total_sessions = isset($subject_sessions[$subject_id]['total_sessions']) ? $subject_sessions[$subject_id]['total_sessions'] : 0;
-        $attended = $attendance_count['attended_sessions'];
-        $percentage = ($total_sessions > 0) ? round(($attended / $total_sessions) * 100, 1) : 0;
-        
-        $student_attendance_data[$student_id]['subjects'][$subject_id] = [
-            'attended' => $attended,
-            'total' => $total_sessions,
-            'percentage' => $percentage
-        ];
-        
-        $student_attendance_data[$student_id]['total_attended'] += $attended;
-        $student_attendance_data[$student_id]['total_sessions'] += $total_sessions;
-    }
-    
-    // Calculate overall percentage
-    if ($student_attendance_data[$student_id]['total_sessions'] > 0) {
-        $student_attendance_data[$student_id]['overall_percentage'] = 
-            round(($student_attendance_data[$student_id]['total_attended'] / $student_attendance_data[$student_id]['total_sessions']) * 100, 1);
-    }
+    // Update totals
+    $student_attendance_data[$student_id]['total_attended'] += $attended;
+    $student_attendance_data[$student_id]['total_sessions'] += $total_sessions;
 }
 
-mysqli_stmt_close($students_stmt);
+mysqli_stmt_close($student_stmt);
+
+// Calculate overall percentage for each student
+foreach ($student_attendance_data as $student_id => $data) {
+    if ($data['total_sessions'] > 0) {
+        $student_attendance_data[$student_id]['overall_percentage'] = 
+            round(($data['total_attended'] / $data['total_sessions']) * 100, 1);
+    }
+}
 
 // Filter students by attendance percentage range
 $filtered_students = [];
@@ -246,17 +204,12 @@ uasort($filtered_students, function($a, $b) {
     return $b['overall_percentage'] <=> $a['overall_percentage'];
 });
 
-// Calculate summary statistics
+// Calculate statistics
 $total_students = count($filtered_students);
 $avg_percentage = 0;
 $min_percentage = 100;
 $max_percentage = 0;
-$attendance_distribution = [
-    'excellent' => 0,
-    'good' => 0,
-    'average' => 0,
-    'poor' => 0,
-];
+$attendance_distribution = ['excellent' => 0, 'good' => 0, 'average' => 0, 'poor' => 0];
 
 foreach ($filtered_students as $data) {
     $percentage = $data['overall_percentage'];
@@ -264,15 +217,10 @@ foreach ($filtered_students as $data) {
     $min_percentage = min($min_percentage, $percentage);
     $max_percentage = max($max_percentage, $percentage);
     
-    if ($percentage >= 90) {
-        $attendance_distribution['excellent']++;
-    } elseif ($percentage >= 75) {
-        $attendance_distribution['good']++;
-    } elseif ($percentage >= 50) {
-        $attendance_distribution['average']++;
-    } else {
-        $attendance_distribution['poor']++;
-    }
+    if ($percentage >= 90) $attendance_distribution['excellent']++;
+    elseif ($percentage >= 75) $attendance_distribution['good']++;
+    elseif ($percentage >= 50) $attendance_distribution['average']++;
+    else $attendance_distribution['poor']++;
 }
 
 $avg_percentage = $total_students > 0 ? round($avg_percentage / $total_students, 1) : 0;
@@ -280,38 +228,32 @@ $avg_percentage = $total_students > 0 ? round($avg_percentage / $total_students,
 // Handle export requests
 if (isset($_GET['export'])) {
     $export_type = $_GET['export'];
-    $export_students = $filtered_students; // Always export all filtered students
+    $export_students = $filtered_students;
     
-    // Validate export type
     if (!in_array($export_type, ['csv', 'excel', 'print'])) {
         http_response_code(400);
         die("Invalid export type");
     }
     
-    // Generate CSV data
+    // Generate CSV
     if ($export_type == 'csv') {
-        // Clean any previous output
-        if (ob_get_length()) {
-            ob_clean();
+        // Clear any previous output
+        while (ob_get_level()) {
+            ob_end_clean();
         }
         
-        // Set headers for CSV download
         header('Content-Type: text/csv; charset=utf-8');
-        header('Content-Disposition: attachment; filename=360_students_attendance_' . date('Y-m-d') . '.csv');
+        header('Content-Disposition: attachment; filename=students_attendance_' . date('Y-m-d') . '.csv');
         
-        // Create output stream
         $output = fopen('php://output', 'w');
-        
-        // Add BOM for UTF-8
         fwrite($output, "\xEF\xBB\xBF");
         
-        // Headers
+        // Headers - ALL SUBJECTS + OVERALL
         $headers = ['#', 'Student ID', 'Student Name', 'Section', 'Department', 'ID Number'];
         
-        // Add subject headers
-        foreach ($subject_sessions as $subject_id => $subject) {
-            $headers[] = htmlspecialchars($subject['subject_code']) . ' %';
-            $headers[] = htmlspecialchars($subject['subject_code']) . ' (Attended/Total)';
+        foreach ($subject_sessions as $subject) {
+            $headers[] = $subject['subject_code'] . ' %';
+            $headers[] = $subject['subject_code'] . ' (Attended/Total)';
         }
         
         $headers[] = 'Overall %';
@@ -324,98 +266,79 @@ if (isset($_GET['export'])) {
         $counter = 1;
         foreach ($export_students as $student_id => $data) {
             $student_info = $data['info'];
-            $overall_percentage = $data['overall_percentage'];
             
             // Determine status
-            if ($overall_percentage >= 90) {
-                $status = 'Excellent';
-            } elseif ($overall_percentage >= 75) {
-                $status = 'Good';
-            } elseif ($overall_percentage >= 50) {
-                $status = 'Average';
-            } else {
-                $status = 'Poor';
-            }
+            if ($data['overall_percentage'] >= 90) $status = 'Excellent';
+            elseif ($data['overall_percentage'] >= 75) $status = 'Good';
+            elseif ($data['overall_percentage'] >= 50) $status = 'Average';
+            else $status = 'Poor';
             
             $row = [
                 $counter++,
-                htmlspecialchars($student_info['student_id']),
-                htmlspecialchars($student_info['student_name']),
-                htmlspecialchars($student_info['section']),
-                htmlspecialchars($student_info['student_department']),
-                htmlspecialchars($student_info['id_number'])
+                $student_info['student_id'],
+                $student_info['student_name'],
+                $student_info['section'],
+                $student_info['student_department'],
+                $student_info['id_number']
             ];
             
-            // Add subject data
+            // Add ALL subject data
             foreach ($subject_sessions as $subject_id => $subject) {
                 $subject_data = isset($data['subjects'][$subject_id]) ? $data['subjects'][$subject_id] : ['percentage' => 0, 'attended' => 0, 'total' => $subject['total_sessions']];
                 $row[] = $subject_data['percentage'] . '%';
                 $row[] = $subject_data['attended'] . '/' . $subject_data['total'];
             }
             
-            $row[] = $overall_percentage . '%';
+            $row[] = $data['overall_percentage'] . '%';
             $row[] = $data['total_attended'] . '/' . $data['total_sessions'];
             $row[] = $status;
             
             fputcsv($output, $row);
         }
         
-        // Add summary row
-        fputcsv($output, []); // Empty row
+        // Add summary
+        fputcsv($output, []);
         fputcsv($output, ['Summary Statistics']);
         fputcsv($output, ['Total Students', $total_students]);
         fputcsv($output, ['Average Attendance', $avg_percentage . '%']);
         fputcsv($output, ['Highest Percentage', $max_percentage . '%']);
         fputcsv($output, ['Lowest Percentage', $min_percentage . '%']);
         fputcsv($output, ['Date Range', $date_from . ' to ' . $date_to]);
+        fputcsv($output, ['Excellent (90-100%)', $attendance_distribution['excellent']]);
+        fputcsv($output, ['Good (75-89%)', $attendance_distribution['good']]);
+        fputcsv($output, ['Average (50-74%)', $attendance_distribution['average']]);
+        fputcsv($output, ['Poor (0-49%)', $attendance_distribution['poor']]);
         
         fclose($output);
         exit;
     }
     
-    // Generate Excel (HTML table format that Excel can open)
+    // Generate Excel
     elseif ($export_type == 'excel') {
-        // Clean any previous output
-        if (ob_get_length()) {
-            ob_clean();
+        while (ob_get_level()) {
+            ob_end_clean();
         }
         
         header('Content-Type: application/vnd.ms-excel');
-        header('Content-Disposition: attachment; filename="360_students_attendance_' . date('Y-m-d') . '.xls"');
+        header('Content-Disposition: attachment; filename="students_attendance_' . date('Y-m-d') . '.xls"');
         
         echo '<!DOCTYPE html>
         <html>
         <head>
             <meta charset="UTF-8">
-            <title>360° Students Attendance Report</title>
+            <title>Students Attendance Report</title>
             <style>
                 table { border-collapse: collapse; width: 100%; }
-                th, td { border: 1px solid #ddd; padding: 8px; text-align: center; }
+                th, td { border: 1px solid #ddd; padding: 6px; text-align: center; font-size: 11px; }
                 th { background-color: #f2f2f2; font-weight: bold; }
-                .summary { margin-top: 30px; }
-                .summary table { width: auto; }
+                .summary { margin-top: 20px; }
             </style>
         </head>
         <body>';
         
-        echo '<h1>360° Students Attendance Report</h1>';
+        echo '<h2>Students Attendance Report - ALL Subjects</h2>';
         echo '<h3>Faculty: ' . htmlspecialchars($faculty['faculty_name']) . '</h3>';
-        echo '<p>Generated on: ' . date('F j, Y h:i A') . '</p>';
-        echo '<p>Date Range: ' . htmlspecialchars($date_from) . ' to ' . htmlspecialchars($date_to) . '</p>';
-        echo '<p>Filters Applied: ';
-        if ($subject_filter > 0 && isset($subject_sessions[$subject_filter])) {
-            echo 'Subject: ' . htmlspecialchars($subject_sessions[$subject_filter]['subject_name']) . ' | ';
-        } elseif ($subject_filter > 0) {
-            echo 'Subject: Selected Subject | ';
-        }
-        if (!empty($section_filter)) {
-            echo 'Section: ' . htmlspecialchars($section_filter) . ' | ';
-        }
-        if (!empty($search_query)) {
-            echo 'Search: ' . htmlspecialchars($search_query) . ' | ';
-        }
-        echo 'Attendance Range: ' . $min_attendance . '% to ' . $max_attendance . '%';
-        echo '</p>';
+        echo '<p>Generated on: ' . date('F j, Y h:i A') . ' | Date Range: ' . $date_from . ' to ' . $date_to . '</p>';
         
         echo '<table>';
         echo '<thead><tr>
@@ -426,9 +349,9 @@ if (isset($_GET['export'])) {
                 <th>Department</th>
                 <th>ID Number</th>';
         
-        foreach ($subject_sessions as $subject_id => $subject) {
-            echo '<th>' . htmlspecialchars($subject['subject_code']) . ' %</th>';
-            echo '<th>' . htmlspecialchars($subject['subject_code']) . ' Count</th>';
+        foreach ($subject_sessions as $subject) {
+            echo '<th>' . $subject['subject_code'] . ' %</th>';
+            echo '<th>' . $subject['subject_code'] . ' Count</th>';
         }
         
         echo '<th>Overall %</th>
@@ -439,26 +362,19 @@ if (isset($_GET['export'])) {
         $counter = 1;
         foreach ($export_students as $student_id => $data) {
             $student_info = $data['info'];
-            $overall_percentage = $data['overall_percentage'];
             
-            // Determine status
-            if ($overall_percentage >= 90) {
-                $status = 'Excellent';
-            } elseif ($overall_percentage >= 75) {
-                $status = 'Good';
-            } elseif ($overall_percentage >= 50) {
-                $status = 'Average';
-            } else {
-                $status = 'Poor';
-            }
+            if ($data['overall_percentage'] >= 90) $status = 'Excellent';
+            elseif ($data['overall_percentage'] >= 75) $status = 'Good';
+            elseif ($data['overall_percentage'] >= 50) $status = 'Average';
+            else $status = 'Poor';
             
             echo '<tr>
                     <td>' . $counter++ . '</td>
-                    <td>' . htmlspecialchars($student_info['student_id']) . '</td>
-                    <td>' . htmlspecialchars($student_info['student_name']) . '</td>
-                    <td>' . htmlspecialchars($student_info['section']) . '</td>
-                    <td>' . htmlspecialchars($student_info['student_department']) . '</td>
-                    <td>' . htmlspecialchars($student_info['id_number']) . '</td>';
+                    <td>' . $student_info['student_id'] . '</td>
+                    <td>' . $student_info['student_name'] . '</td>
+                    <td>' . $student_info['section'] . '</td>
+                    <td>' . $student_info['student_department'] . '</td>
+                    <td>' . $student_info['id_number'] . '</td>';
             
             foreach ($subject_sessions as $subject_id => $subject) {
                 $subject_data = isset($data['subjects'][$subject_id]) ? $data['subjects'][$subject_id] : ['percentage' => 0, 'attended' => 0, 'total' => $subject['total_sessions']];
@@ -466,7 +382,7 @@ if (isset($_GET['export'])) {
                 echo '<td>' . $subject_data['attended'] . '/' . $subject_data['total'] . '</td>';
             }
             
-            echo '<td>' . $overall_percentage . '%</td>
+            echo '<td>' . $data['overall_percentage'] . '%</td>
                   <td>' . $data['total_attended'] . '/' . $data['total_sessions'] . '</td>
                   <td>' . $status . '</td>
                 </tr>';
@@ -474,7 +390,7 @@ if (isset($_GET['export'])) {
         
         echo '</tbody></table>';
         
-        // Add summary
+        // Summary
         echo '<div class="summary">
                 <h3>Summary Statistics</h3>
                 <table>
@@ -482,10 +398,6 @@ if (isset($_GET['export'])) {
                     <tr><td>Average Attendance</td><td>' . $avg_percentage . '%</td></tr>
                     <tr><td>Highest Percentage</td><td>' . $max_percentage . '%</td></tr>
                     <tr><td>Lowest Percentage</td><td>' . $min_percentage . '%</td></tr>
-                    <tr><td>Excellent (90-100%)</td><td>' . $attendance_distribution['excellent'] . '</td></tr>
-                    <tr><td>Good (75-89%)</td><td>' . $attendance_distribution['good'] . '</td></tr>
-                    <tr><td>Average (50-74%)</td><td>' . $attendance_distribution['average'] . '</td></tr>
-                    <tr><td>Poor (0-49%)</td><td>' . $attendance_distribution['poor'] . '</td></tr>
                 </table>
               </div>';
         
@@ -493,64 +405,34 @@ if (isset($_GET['export'])) {
         exit;
     }
     
-    // Print function
+    // Generate Print
     elseif ($export_type == 'print') {
-        // Clean any previous output
-        if (ob_get_length()) {
-            ob_clean();
+        while (ob_get_level()) {
+            ob_end_clean();
         }
         
         echo '<!DOCTYPE html>
         <html>
         <head>
-            <title>360° Students Attendance Report - Print</title>
+            <title>Students Attendance Report - Print</title>
             <meta charset="UTF-8">
             <style>
-                body { font-family: Arial, sans-serif; margin: 20px; }
-                h1, h2, h3 { color: #333; }
-                table { width: 100%; border-collapse: collapse; margin: 20px 0; font-size: 10px; }
-                th, td { border: 1px solid #ddd; padding: 4px; text-align: left; }
-                th { background-color: #f2f2f2; font-weight: bold; }
-                .header { text-align: center; margin-bottom: 20px; }
-                .summary { margin: 20px 0; padding: 15px; background: #f8f9fa; border-radius: 5px; }
-                .badge { padding: 2px 6px; border-radius: 3px; font-size: 10px; }
-                .excellent { background-color: #28a745; color: white; }
-                .good { background-color: #17a2b8; color: white; }
-                .average { background-color: #ffc107; color: black; }
-                .poor { background-color: #dc3545; color: white; }
+                body { font-family: Arial; margin: 15px; }
+                @page { size: landscape; margin: 0.5cm; }
+                table { width: 100%; border-collapse: collapse; font-size: 9px; }
+                th, td { border: 1px solid #ddd; padding: 3px; text-align: left; }
+                th { background-color: #f2f2f2; }
+                .header { text-align: center; margin-bottom: 15px; }
                 @media print {
-                    @page { size: landscape; margin: 0.5cm; }
-                    table { font-size: 8px; }
                     .no-print { display: none !important; }
                 }
             </style>
         </head>
         <body>
             <div class="header">
-                <h1>360° Students Attendance Report - All Students</h1>
-                <h3>Faculty: ' . htmlspecialchars($faculty['faculty_name']) . '</h3>
-                <p>Generated on: ' . date('F j, Y h:i A') . '</p>
-                <div class="summary">
-                    <p><strong>Total Students:</strong> ' . number_format($total_students) . ' | 
-                    <strong>Average Attendance:</strong> ' . $avg_percentage . '% | 
-                    <strong>Date Range:</strong> ' . htmlspecialchars($date_from) . ' to ' . htmlspecialchars($date_to) . '</p>
-                    <p><strong>Filters:</strong> ';
-        
-        if ($subject_filter > 0 && isset($subject_sessions[$subject_filter])) {
-            echo 'Subject: ' . htmlspecialchars($subject_sessions[$subject_filter]['subject_name']) . ' | ';
-        } elseif ($subject_filter > 0) {
-            echo 'Subject: Selected Subject | ';
-        }
-        if (!empty($section_filter)) {
-            echo 'Section: ' . htmlspecialchars($section_filter) . ' | ';
-        }
-        if (!empty($search_query)) {
-            echo 'Search: ' . htmlspecialchars($search_query) . ' | ';
-        }
-        echo 'Attendance Range: ' . $min_attendance . '% to ' . $max_attendance . '%';
-        
-        echo '</p>
-                </div>
+                <h2>Students Attendance Report - ALL Subjects</h2>
+                <h4>Faculty: ' . htmlspecialchars($faculty['faculty_name']) . '</h4>
+                <p>Generated: ' . date('F j, Y') . ' | Students: ' . $total_students . '</p>
             </div>
             
             <table>
@@ -558,17 +440,14 @@ if (isset($_GET['export'])) {
                     <tr>
                         <th>#</th>
                         <th>Student ID</th>
-                        <th>Student Name</th>
-                        <th>Section</th>
-                        <th>Department</th>
-                        <th>ID Number</th>';
+                        <th>Name</th>
+                        <th>Section</th>';
         
-        foreach ($subject_sessions as $subject_id => $subject) {
-            echo '<th>' . htmlspecialchars($subject['subject_code']) . ' %</th>';
+        foreach ($subject_sessions as $subject) {
+            echo '<th>' . $subject['subject_code'] . ' %</th>';
         }
         
         echo '<th>Overall %</th>
-              <th>Overall Count</th>
               <th>Status</th>
             </tr>
         </thead>
@@ -577,76 +456,36 @@ if (isset($_GET['export'])) {
         $counter = 1;
         foreach ($export_students as $student_id => $data) {
             $student_info = $data['info'];
-            $overall_percentage = $data['overall_percentage'];
             
-            // Determine status and class
-            if ($overall_percentage >= 90) {
-                $status = 'Excellent';
-                $status_class = 'excellent';
-            } elseif ($overall_percentage >= 75) {
-                $status = 'Good';
-                $status_class = 'good';
-            } elseif ($overall_percentage >= 50) {
-                $status = 'Average';
-                $status_class = 'average';
-            } else {
-                $status = 'Poor';
-                $status_class = 'poor';
-            }
+            if ($data['overall_percentage'] >= 90) $status = 'Excellent';
+            elseif ($data['overall_percentage'] >= 75) $status = 'Good';
+            elseif ($data['overall_percentage'] >= 50) $status = 'Average';
+            else $status = 'Poor';
             
             echo '<tr>
                     <td>' . $counter++ . '</td>
-                    <td>' . htmlspecialchars($student_info['student_id']) . '</td>
-                    <td>' . htmlspecialchars($student_info['student_name']) . '</td>
-                    <td>' . htmlspecialchars($student_info['section']) . '</td>
-                    <td>' . htmlspecialchars($student_info['student_department']) . '</td>
-                    <td>' . htmlspecialchars($student_info['id_number']) . '</td>';
+                    <td>' . $student_info['student_id'] . '</td>
+                    <td>' . $student_info['student_name'] . '</td>
+                    <td>' . $student_info['section'] . '</td>';
             
             foreach ($subject_sessions as $subject_id => $subject) {
                 $subject_data = isset($data['subjects'][$subject_id]) ? $data['subjects'][$subject_id] : ['percentage' => 0];
                 echo '<td>' . $subject_data['percentage'] . '%</td>';
             }
             
-            echo '<td>' . $overall_percentage . '%</td>
-                  <td>' . $data['total_attended'] . '/' . $data['total_sessions'] . '</td>
-                  <td><span class="badge ' . $status_class . '">' . $status . '</span></td>
+            echo '<td>' . $data['overall_percentage'] . '%</td>
+                  <td>' . $status . '</td>
                 </tr>';
         }
         
-        echo '</tbody>
-            </table>
+        echo '</tbody></table>
             
-            <div style="page-break-before: always; margin-top: 30px;">
-                <h3>Summary Statistics</h3>
-                <table>
-                    <tr><td>Total Students</td><td>' . $total_students . '</td></tr>
-                    <tr><td>Average Attendance</td><td>' . $avg_percentage . '%</td></tr>
-                    <tr><td>Highest Percentage</td><td>' . $max_percentage . '%</td></tr>
-                    <tr><td>Lowest Percentage</td><td>' . $min_percentage . '%</td></tr>
-                    <tr><td>Excellent (90-100%)</td><td>' . $attendance_distribution['excellent'] . '</td></tr>
-                    <tr><td>Good (75-89%)</td><td>' . $attendance_distribution['good'] . '</td></tr>
-                    <tr><td>Average (50-74%)</td><td>' . $attendance_distribution['average'] . '</td></tr>
-                    <tr><td>Poor (0-49%)</td><td>' . $attendance_distribution['poor'] . '</td></tr>
-                </table>
+            <div class="no-print" style="margin-top: 20px; text-align: center;">
+                <button onclick="window.print()">Print Report</button>
+                <button onclick="window.close()">Close</button>
             </div>
             
-            <div style="margin-top: 50px; font-size: 10px; text-align: center;">
-                <p>Report generated by: ' . htmlspecialchars($faculty['faculty_name']) . '</p>
-            </div>
-            
-            <div class="no-print" style="margin-top: 30px; text-align: center;">
-                <button onclick="window.print()" class="btn btn-primary">Print Report</button>
-                <button onclick="window.close()" class="btn btn-secondary">Close Window</button>
-            </div>
-            
-            <script>
-                window.onload = function() {
-                    // Auto-print only if the user hasn\'t already printed
-                    if (!window.matchMedia || !window.matchMedia("print").matches) {
-                        window.print();
-                    }
-                }
-            </script>
+            <script>window.onload = function() { window.print(); }</script>
         </body>
         </html>';
         exit;
@@ -658,99 +497,80 @@ if (isset($_GET['export'])) {
     <!-- Page Header -->
     <div class="d-sm-flex align-items-center justify-content-between mb-4">
         <h1 class="h3 mb-0 text-gray-800">
-            <i class="fas fa-download text-primary"></i> Bulk Download - Students Attendance
-            <small class="text-muted ms-2">Faculty: <?php echo htmlspecialchars($faculty['faculty_name']); ?></small>
+            <i class="fas fa-download text-primary"></i> Bulk Download - Complete Attendance Data
         </h1>
-        <a href="360_students_attendance.php?<?php echo htmlspecialchars(http_build_query($_GET)); ?>" class="btn btn-secondary">
-            <i class="fas fa-arrow-left"></i> Back to 360° View
+        <a href="360_students_attendance.php?<?php echo http_build_query($_GET); ?>" class="btn btn-secondary">
+            <i class="fas fa-arrow-left"></i> Back to View
         </a>
     </div>
 
-    <!-- Statistics Card -->
+    <!-- Statistics -->
     <div class="row mb-4">
-        <div class="col-12">
-            <div class="card border-left-primary shadow">
+        <div class="col-md-3">
+            <div class="card border-left-primary shadow h-100 py-2">
                 <div class="card-body">
-                    <div class="row">
-                        <div class="col-md-3 text-center">
-                            <div class="h5 mb-0 font-weight-bold text-gray-800">
-                                <?php echo number_format($total_students); ?>
-                            </div>
-                            <div class="text-xs font-weight-bold text-primary text-uppercase">
+                    <div class="row no-gutters align-items-center">
+                        <div class="col mr-2">
+                            <div class="text-xs font-weight-bold text-primary text-uppercase mb-1">
                                 Total Students
                             </div>
-                        </div>
-                        <div class="col-md-3 text-center">
                             <div class="h5 mb-0 font-weight-bold text-gray-800">
-                                <?php echo $avg_percentage; ?>%
-                            </div>
-                            <div class="text-xs font-weight-bold text-success text-uppercase">
-                                Average Attendance
-                            </div>
-                        </div>
-                        <div class="col-md-3 text-center">
-                            <div class="h5 mb-0 font-weight-bold text-gray-800">
-                                <?php echo count($subject_sessions); ?>
-                            </div>
-                            <div class="text-xs font-weight-bold text-info text-uppercase">
-                                Subjects
-                            </div>
-                        </div>
-                        <div class="col-md-3 text-center">
-                            <div class="h5 mb-0 font-weight-bold text-gray-800">
-                                <?php echo date('d/m/Y', strtotime($date_from)); ?> - <?php echo date('d/m/Y', strtotime($date_to)); ?>
-                            </div>
-                            <div class="text-xs font-weight-bold text-warning text-uppercase">
-                                Date Range
+                                <?php echo number_format($total_students); ?>
                             </div>
                         </div>
                     </div>
                 </div>
             </div>
         </div>
-    </div>
-
-    <!-- Filter Card -->
-    <div class="card shadow mb-4">
-        <div class="card-header py-3">
-            <h6 class="m-0 font-weight-bold text-primary">
-                <i class="fas fa-filter"></i> Current Filters
-            </h6>
-        </div>
-        <div class="card-body">
-            <div class="row">
-                <div class="col-md-3">
-                    <strong>Subject:</strong><br>
-                    <?php 
-                    if ($subject_filter > 0 && isset($subject_sessions[$subject_filter])) {
-                        echo htmlspecialchars($subject_sessions[$subject_filter]['subject_code'] . ' - ' . $subject_sessions[$subject_filter]['subject_name']);
-                    } else {
-                        echo 'All Subjects';
-                    }
-                    ?>
-                </div>
-                <div class="col-md-2">
-                    <strong>Section:</strong><br>
-                    <?php echo !empty($section_filter) ? 'Section ' . htmlspecialchars($section_filter) : 'All Sections'; ?>
-                </div>
-                <div class="col-md-3">
-                    <strong>Date Range:</strong><br>
-                    <?php echo date('d/m/Y', strtotime($date_from)) . ' to ' . date('d/m/Y', strtotime($date_to)); ?>
-                </div>
-                <div class="col-md-2">
-                    <strong>Attendance Range:</strong><br>
-                    <?php echo $min_attendance; ?>% to <?php echo $max_attendance; ?>%
-                </div>
-                <div class="col-md-2">
-                    <strong>Search:</strong><br>
-                    <?php echo !empty($search_query) ? htmlspecialchars($search_query) : 'None'; ?>
+        
+        <div class="col-md-3">
+            <div class="card border-left-success shadow h-100 py-2">
+                <div class="card-body">
+                    <div class="row no-gutters align-items-center">
+                        <div class="col mr-2">
+                            <div class="text-xs font-weight-bold text-success text-uppercase mb-1">
+                                Avg Attendance
+                            </div>
+                            <div class="h5 mb-0 font-weight-bold text-gray-800">
+                                <?php echo $avg_percentage; ?>%
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </div>
-            <div class="mt-3">
-                <a href="360_students_attendance.php?<?php echo htmlspecialchars(http_build_query($_GET)); ?>" 
-                   class="btn btn-sm btn-primary">
-                    <i class="fas fa-edit"></i> Modify Filters
-                </a>
+        </div>
+        
+        <div class="col-md-3">
+            <div class="card border-left-info shadow h-100 py-2">
+                <div class="card-body">
+                    <div class="row no-gutters align-items-center">
+                        <div class="col mr-2">
+                            <div class="text-xs font-weight-bold text-info text-uppercase mb-1">
+                                Subjects
+                            </div>
+                            <div class="h5 mb-0 font-weight-bold text-gray-800">
+                                <?php echo count($subject_sessions); ?>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="col-md-3">
+            <div class="card border-left-warning shadow h-100 py-2">
+                <div class="card-body">
+                    <div class="row no-gutters align-items-center">
+                        <div class="col mr-2">
+                            <div class="text-xs font-weight-bold text-warning text-uppercase mb-1">
+                                Date Range
+                            </div>
+                            <div class="h5 mb-0 font-weight-bold text-gray-800">
+                                <?php echo date('d/m/Y', strtotime($date_from)); ?> - <?php echo date('d/m/Y', strtotime($date_to)); ?>
+                            </div>
+                        </div>
+                    </div>
+                </div>
             </div>
         </div>
     </div>
@@ -760,25 +580,16 @@ if (isset($_GET['export'])) {
         <div class="col-lg-4 mb-4">
             <div class="card shadow h-100">
                 <div class="card-header bg-success text-white">
-                    <h6 class="m-0 font-weight-bold">
-                        <i class="fas fa-file-excel"></i> Excel Format
-                    </h6>
+                    <h6 class="m-0 font-weight-bold"><i class="fas fa-file-excel"></i> Excel Download</h6>
                 </div>
                 <div class="card-body text-center">
                     <i class="fas fa-file-excel fa-5x text-success mb-4"></i>
-                    <h4 class="text-success">Excel Download</h4>
-                    <p>Download all <?php echo number_format($total_students); ?> students data in Microsoft Excel format (.xls)</p>
-                    <div class="mt-4">
-                        <a href="?<?php echo htmlspecialchars(http_build_query(array_merge($_GET, ['export' => 'excel']))); ?>" 
-                           class="btn btn-success btn-lg btn-block">
-                            <i class="fas fa-download"></i> Download Excel File
-                        </a>
-                    </div>
-                    <div class="mt-3">
-                        <small class="text-muted">
-                            <i class="fas fa-info-circle"></i> Compatible with Microsoft Excel, Google Sheets, and LibreOffice Calc
-                        </small>
-                    </div>
+                    <h5>Download Excel (.xls)</h5>
+                    <p>Includes ALL <?php echo count($subject_sessions); ?> subjects + overall percentage</p>
+                    <a href="?<?php echo http_build_query(array_merge($_GET, ['export' => 'excel'])); ?>" 
+                       class="btn btn-success btn-lg btn-block mt-3">
+                        <i class="fas fa-download"></i> Download Excel
+                    </a>
                 </div>
             </div>
         </div>
@@ -786,25 +597,16 @@ if (isset($_GET['export'])) {
         <div class="col-lg-4 mb-4">
             <div class="card shadow h-100">
                 <div class="card-header bg-info text-white">
-                    <h6 class="m-0 font-weight-bold">
-                        <i class="fas fa-file-csv"></i> CSV Format
-                    </h6>
+                    <h6 class="m-0 font-weight-bold"><i class="fas fa-file-csv"></i> CSV Download</h6>
                 </div>
                 <div class="card-body text-center">
                     <i class="fas fa-file-csv fa-5x text-info mb-4"></i>
-                    <h4 class="text-info">CSV Download</h4>
-                    <p>Download all <?php echo number_format($total_students); ?> students data in CSV format (.csv)</p>
-                    <div class="mt-4">
-                        <a href="?<?php echo htmlspecialchars(http_build_query(array_merge($_GET, ['export' => 'csv']))); ?>" 
-                           class="btn btn-info btn-lg btn-block">
-                            <i class="fas fa-download"></i> Download CSV File
-                        </a>
-                    </div>
-                    <div class="mt-3">
-                        <small class="text-muted">
-                            <i class="fas fa-info-circle"></i> Best for data analysis, database import, and statistical software
-                        </small>
-                    </div>
+                    <h5>Download CSV (.csv)</h5>
+                    <p>Complete data with <?php echo $total_students; ?> students</p>
+                    <a href="?<?php echo http_build_query(array_merge($_GET, ['export' => 'csv'])); ?>" 
+                       class="btn btn-info btn-lg btn-block mt-3">
+                        <i class="fas fa-download"></i> Download CSV
+                    </a>
                 </div>
             </div>
         </div>
@@ -812,35 +614,26 @@ if (isset($_GET['export'])) {
         <div class="col-lg-4 mb-4">
             <div class="card shadow h-100">
                 <div class="card-header bg-warning text-white">
-                    <h6 class="m-0 font-weight-bold">
-                        <i class="fas fa-print"></i> Print Report
-                    </h6>
+                    <h6 class="m-0 font-weight-bold"><i class="fas fa-print"></i> Print Report</h6>
                 </div>
                 <div class="card-body text-center">
                     <i class="fas fa-print fa-5x text-warning mb-4"></i>
-                    <h4 class="text-warning">Print Report</h4>
-                    <p>Print all <?php echo number_format($total_students); ?> students data as a formatted report</p>
-                    <div class="mt-4">
-                        <a href="?<?php echo htmlspecialchars(http_build_query(array_merge($_GET, ['export' => 'print']))); ?>" 
-                           class="btn btn-warning btn-lg btn-block" target="_blank">
-                            <i class="fas fa-print"></i> Open Print View
-                        </a>
-                    </div>
-                    <div class="mt-3">
-                        <small class="text-muted">
-                            <i class="fas fa-info-circle"></i> Opens in a new window optimized for printing with landscape layout
-                        </small>
-                    </div>
+                    <h5>Print Report</h5>
+                    <p>Printable format with all data</p>
+                    <a href="?<?php echo http_build_query(array_merge($_GET, ['export' => 'print'])); ?>" 
+                       class="btn btn-warning btn-lg btn-block mt-3" target="_blank">
+                        <i class="fas fa-print"></i> Print Report
+                    </a>
                 </div>
             </div>
         </div>
     </div>
 
-    <!-- Preview Section -->
+    <!-- Data Preview -->
     <div class="card shadow mb-4">
         <div class="card-header py-3">
             <h6 class="m-0 font-weight-bold text-primary">
-                <i class="fas fa-eye"></i> Data Preview (First 5 Students)
+                <i class="fas fa-eye"></i> Data Preview (First 3 Students)
             </h6>
         </div>
         <div class="card-body">
@@ -848,118 +641,71 @@ if (isset($_GET['export'])) {
                 <table class="table table-bordered table-sm">
                     <thead class="bg-light">
                         <tr>
-                            <th>#</th>
-                            <th>Student ID</th>
-                            <th>Student Name</th>
+                            <th>Student</th>
                             <th>Section</th>
+                            <?php 
+                            // Show first 3 subjects + overall
+                            $subject_count = 0;
+                            foreach ($subject_sessions as $subject): 
+                                if ($subject_count++ < 3):
+                            ?>
+                            <th><?php echo $subject['subject_code']; ?> %</th>
+                            <?php 
+                                endif;
+                            endforeach; 
+                            ?>
                             <th>Overall %</th>
                             <th>Status</th>
                         </tr>
                     </thead>
                     <tbody>
                         <?php 
-                        $preview_counter = 1;
-                        $preview_students = array_slice($filtered_students, 0, 5, true);
-                        foreach ($preview_students as $student_id => $data): 
+                        $preview_count = 0;
+                        foreach ($filtered_students as $student_id => $data): 
+                            if ($preview_count++ >= 3) break;
                             $student_info = $data['info'];
-                            $overall_percentage = $data['overall_percentage'];
                             
-                            // Determine status
-                            if ($overall_percentage >= 90) {
-                                $status = 'Excellent';
-                                $status_class = 'success';
-                            } elseif ($overall_percentage >= 75) {
-                                $status = 'Good';
-                                $status_class = 'info';
-                            } elseif ($overall_percentage >= 50) {
-                                $status = 'Average';
-                                $status_class = 'warning';
+                            if ($data['overall_percentage'] >= 90) {
+                                $status = 'Excellent'; $status_class = 'success';
+                            } elseif ($data['overall_percentage'] >= 75) {
+                                $status = 'Good'; $status_class = 'info';
+                            } elseif ($data['overall_percentage'] >= 50) {
+                                $status = 'Average'; $status_class = 'warning';
                             } else {
-                                $status = 'Poor';
-                                $status_class = 'danger';
+                                $status = 'Poor'; $status_class = 'danger';
                             }
                         ?>
                         <tr>
-                            <td><?php echo $preview_counter++; ?></td>
-                            <td><?php echo htmlspecialchars($student_info['student_id']); ?></td>
                             <td><?php echo htmlspecialchars($student_info['student_name']); ?></td>
-                            <td>Section <?php echo htmlspecialchars($student_info['section']); ?></td>
-                            <td>
-                                <div class="progress" style="height: 20px;">
-                                    <div class="progress-bar bg-<?php echo $status_class; ?>" 
-                                         style="width: <?php echo $overall_percentage; ?>%">
-                                        <?php echo $overall_percentage; ?>%
-                                    </div>
-                                </div>
-                            </td>
+                            <td><?php echo htmlspecialchars($student_info['section']); ?></td>
+                            <?php 
+                            $subject_count = 0;
+                            foreach ($subject_sessions as $subject_id => $subject): 
+                                if ($subject_count++ < 3):
+                                    $subject_data = isset($data['subjects'][$subject_id]) ? $data['subjects'][$subject_id] : ['percentage' => 0];
+                            ?>
+                            <td><?php echo $subject_data['percentage']; ?>%</td>
+                            <?php 
+                                endif;
+                            endforeach; 
+                            ?>
                             <td>
                                 <span class="badge bg-<?php echo $status_class; ?>">
-                                    <?php echo $status; ?>
+                                    <?php echo $data['overall_percentage']; ?>%
                                 </span>
                             </td>
+                            <td><span class="badge bg-<?php echo $status_class; ?>"><?php echo $status; ?></span></td>
                         </tr>
                         <?php endforeach; ?>
                     </tbody>
                 </table>
             </div>
-            <div class="mt-3 text-center">
+            <p class="mt-2">
                 <small class="text-muted">
-                    Showing 5 of <?php echo number_format($total_students); ?> students. Full data will be included in the download.
+                    Showing 3 of <?php echo $total_students; ?> students. 
+                    Full download includes ALL <?php echo count($subject_sessions); ?> subjects.
                 </small>
-            </div>
-        </div>
-    </div>
-
-    <!-- Instructions -->
-    <div class="card shadow">
-        <div class="card-header py-3">
-            <h6 class="m-0 font-weight-bold text-primary">
-                <i class="fas fa-info-circle"></i> Instructions
-            </h6>
-        </div>
-        <div class="card-body">
-            <div class="row">
-                <div class="col-md-4">
-                    <div class="card border-left-primary h-100">
-                        <div class="card-body">
-                            <h6 class="font-weight-bold text-primary">
-                                <i class="fas fa-step-forward me-2"></i>Step 1
-                            </h6>
-                            <p>Review the filters applied above. All data will be exported based on these filters.</p>
-                        </div>
-                    </div>
-                </div>
-                <div class="col-md-4">
-                    <div class="card border-left-success h-100">
-                        <div class="card-body">
-                            <h6 class="font-weight-bold text-success">
-                                <i class="fas fa-step-forward me-2"></i>Step 2
-                            </h6>
-                            <p>Choose your preferred download format (Excel, CSV, or Print).</p>
-                        </div>
-                    </div>
-                </div>
-                <div class="col-md-4">
-                    <div class="card border-left-info h-100">
-                        <div class="card-body">
-                            <h6 class="font-weight-bold text-info">
-                                <i class="fas fa-step-forward me-2"></i>Step 3
-                            </h6>
-                            <p>Click the download button. The file will be generated and downloaded automatically.</p>
-                        </div>
-                    </div>
-                </div>
-            </div>
-            <div class="alert alert-info mt-4">
-                <h6><i class="fas fa-lightbulb me-2"></i>Important Notes:</h6>
-                <ul class="mb-0">
-                    <li>All <?php echo number_format($total_students); ?> students matching your filters will be included</li>
-                    <li>Each download includes summary statistics</li>
-                    <li>Excel and CSV files include all subject-wise attendance percentages</li>
-                    <li>Print version is optimized for A4 paper with landscape orientation</li>
-                    <li>Large files may take a few moments to generate</li>
-                </ul>
-            </div>
+            </p>
         </div>
     </div>
 </div>
@@ -967,8 +713,7 @@ if (isset($_GET['export'])) {
 <?php include 'footer.php'; ?>
 
 <?php
-// Clean output buffering properly
 if (ob_get_length()) {
     ob_end_flush();
 }
-// Don't put any text after the closing PHP tag
+?>
