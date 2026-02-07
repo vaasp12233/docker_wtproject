@@ -33,9 +33,20 @@ mysqli_stmt_bind_param($subjects_stmt, "s", $faculty_id);
 mysqli_stmt_execute($subjects_stmt);
 $subjects_result = mysqli_stmt_get_result($subjects_stmt);
 
+// Store subjects in array for reuse
+$subjects_data = [];
+while($subject = mysqli_fetch_assoc($subjects_result)) {
+    $subjects_data[] = $subject;
+}
+mysqli_stmt_close($subjects_stmt);
+
 // Get all sections
 $sections_query = "SELECT DISTINCT section FROM students WHERE section != '' ORDER BY section";
 $sections_result = mysqli_query($conn, $sections_query);
+$sections_data = [];
+while($section = mysqli_fetch_assoc($sections_result)) {
+    $sections_data[] = $section;
+}
 
 // Initialize filter variables with sanitization
 $subject_filter = isset($_GET['subject_id']) ? intval($_GET['subject_id']) : 0;
@@ -138,87 +149,101 @@ while ($subject_session = mysqli_fetch_assoc($subject_sessions_result)) {
 }
 mysqli_stmt_close($subject_sessions_stmt);
 
+// If no subjects found for filter, show empty state
+if (empty($subject_sessions)) {
+    $no_subjects_message = "No subjects found for the selected filters.";
+}
+
 // Prepare data structure for student attendance
 $student_attendance_data = [];
-$subject_ids = [];
+$subject_ids = array_keys($subject_sessions);
 
-// Get all subject IDs for this faculty using prepared statement
-$subject_ids_query = "SELECT DISTINCT subject_id FROM sessions WHERE faculty_id = ?";
-$subject_ids_params = [$faculty_id];
-$subject_ids_param_types = "s";
-
-if ($subject_filter > 0) {
-    $subject_ids_query .= " AND subject_id = ?";
-    $subject_ids_params[] = $subject_filter;
-    $subject_ids_param_types .= "i";
-}
-
-$subject_ids_stmt = mysqli_prepare($conn, $subject_ids_query);
-mysqli_stmt_bind_param($subject_ids_stmt, $subject_ids_param_types, ...$subject_ids_params);
-mysqli_stmt_execute($subject_ids_stmt);
-$subject_ids_result = mysqli_stmt_get_result($subject_ids_stmt);
-while ($subject_row = mysqli_fetch_assoc($subject_ids_result)) {
-    $subject_ids[] = $subject_row['subject_id'];
-}
-mysqli_stmt_close($subject_ids_stmt);
-
-// Now get attendance data for each student using prepared statements
-while ($student = mysqli_fetch_assoc($students_result)) {
-    $student_id = $student['student_id'];
-    $student_attendance_data[$student_id] = [
-        'info' => $student,
-        'subjects' => [],
-        'total_attended' => 0,
-        'total_sessions' => 0,
-        'overall_percentage' => 0
-    ];
-    
-    // For each subject, get attendance count using prepared statement
-    foreach ($subject_ids as $subject_id) {
-        $attendance_count_query = "SELECT COUNT(*) as attended_sessions
-                                  FROM attendance_records ar
-                                  JOIN sessions ses ON ar.session_id = ses.session_id
-                                  WHERE ar.student_id = ?
-                                  AND ses.subject_id = ?
-                                  AND ses.faculty_id = ?";
-        
-        $attendance_params = [$student_id, $subject_id, $faculty_id];
-        
-        if (!empty($date_from) && !empty($date_to)) {
-            $attendance_count_query .= " AND DATE(ar.marked_at) BETWEEN ? AND ?";
-            $attendance_params[] = $date_from;
-            $attendance_params[] = $date_to;
-        }
-        
-        $attendance_stmt = mysqli_prepare($conn, $attendance_count_query);
-        $attendance_param_types = "sis";
-        if (!empty($date_from) && !empty($date_to)) {
-            $attendance_param_types .= "ss";
-        }
-        mysqli_stmt_bind_param($attendance_stmt, $attendance_param_types, ...$attendance_params);
-        mysqli_stmt_execute($attendance_stmt);
-        $attendance_count_result = mysqli_stmt_get_result($attendance_stmt);
-        $attendance_count = mysqli_fetch_assoc($attendance_count_result);
-        mysqli_stmt_close($attendance_stmt);
-        
-        $total_sessions = isset($subject_sessions[$subject_id]['total_sessions']) ? $subject_sessions[$subject_id]['total_sessions'] : 0;
-        $attended = $attendance_count['attended_sessions'];
-        $percentage = ($total_sessions > 0) ? round(($attended / $total_sessions) * 100, 1) : 0;
-        
-        $student_attendance_data[$student_id]['subjects'][$subject_id] = [
-            'attended' => $attended,
-            'total' => $total_sessions,
-            'percentage' => $percentage
+// Now get attendance data for each student - OPTIMIZED VERSION
+if (!empty($subject_ids)) {
+    // First, get all student IDs
+    $all_student_ids = [];
+    while ($student = mysqli_fetch_assoc($students_result)) {
+        $all_student_ids[] = $student['student_id'];
+        // Store student info
+        $student_attendance_data[$student['student_id']] = [
+            'info' => $student,
+            'subjects' => [],
+            'total_attended' => 0,
+            'total_sessions' => 0,
+            'overall_percentage' => 0
         ];
-        
-        $student_attendance_data[$student_id]['total_attended'] += $attended;
-        $student_attendance_data[$student_id]['total_sessions'] += $total_sessions;
     }
     
-    // Calculate overall percentage
-    if ($student_attendance_data[$student_id]['total_sessions'] > 0) {
-        $student_attendance_data[$student_id]['overall_percentage'] = 
-            round(($student_attendance_data[$student_id]['total_attended'] / $student_attendance_data[$student_id]['total_sessions']) * 100, 1);
+    // Reset pointer to use student result again later
+    mysqli_data_seek($students_result, 0);
+    
+    // Get attendance counts for all students and subjects in batch
+    if (!empty($all_student_ids)) {
+        // Create placeholders for student IDs
+        $student_placeholders = implode(',', array_fill(0, count($all_student_ids), '?'));
+        $subject_placeholders = implode(',', array_fill(0, count($subject_ids), '?'));
+        
+        // Query to get attendance counts for all students and subjects
+        $batch_attendance_query = "SELECT 
+                                    ar.student_id,
+                                    ses.subject_id,
+                                    COUNT(*) as attended_sessions
+                                   FROM attendance_records ar
+                                   JOIN sessions ses ON ar.session_id = ses.session_id
+                                   WHERE ar.student_id IN ($student_placeholders)
+                                   AND ses.subject_id IN ($subject_placeholders)
+                                   AND ses.faculty_id = ?";
+        
+        $batch_params = array_merge($all_student_ids, $subject_ids, [$faculty_id]);
+        $batch_param_types = str_repeat('s', count($all_student_ids)) . str_repeat('i', count($subject_ids)) . 's';
+        
+        if (!empty($date_from) && !empty($date_to)) {
+            $batch_attendance_query .= " AND DATE(ar.marked_at) BETWEEN ? AND ?";
+            $batch_params[] = $date_from;
+            $batch_params[] = $date_to;
+            $batch_param_types .= "ss";
+        }
+        
+        $batch_attendance_query .= " GROUP BY ar.student_id, ses.subject_id";
+        
+        $batch_stmt = mysqli_prepare($conn, $batch_attendance_query);
+        mysqli_stmt_bind_param($batch_stmt, $batch_param_types, ...$batch_params);
+        mysqli_stmt_execute($batch_stmt);
+        $batch_result = mysqli_stmt_get_result($batch_stmt);
+        
+        // Store batch attendance data
+        $batch_attendance = [];
+        while ($row = mysqli_fetch_assoc($batch_result)) {
+            if (!isset($batch_attendance[$row['student_id']])) {
+                $batch_attendance[$row['student_id']] = [];
+            }
+            $batch_attendance[$row['student_id']][$row['subject_id']] = $row['attended_sessions'];
+        }
+        mysqli_stmt_close($batch_stmt);
+        
+        // Process each student with batch data
+        foreach ($all_student_ids as $student_id) {
+            foreach ($subject_ids as $subject_id) {
+                $attended = isset($batch_attendance[$student_id][$subject_id]) ? $batch_attendance[$student_id][$subject_id] : 0;
+                $total_sessions = isset($subject_sessions[$subject_id]['total_sessions']) ? $subject_sessions[$subject_id]['total_sessions'] : 0;
+                $percentage = ($total_sessions > 0) ? round(($attended / $total_sessions) * 100, 1) : 0;
+                
+                $student_attendance_data[$student_id]['subjects'][$subject_id] = [
+                    'attended' => $attended,
+                    'total' => $total_sessions,
+                    'percentage' => $percentage
+                ];
+                
+                $student_attendance_data[$student_id]['total_attended'] += $attended;
+                $student_attendance_data[$student_id]['total_sessions'] += $total_sessions;
+            }
+            
+            // Calculate overall percentage
+            if ($student_attendance_data[$student_id]['total_sessions'] > 0) {
+                $student_attendance_data[$student_id]['overall_percentage'] = 
+                    round(($student_attendance_data[$student_id]['total_attended'] / $student_attendance_data[$student_id]['total_sessions']) * 100, 1);
+            }
+        }
     }
 }
 
@@ -279,18 +304,13 @@ foreach ($filtered_students as $data) {
 $avg_percentage = $total_students > 0 ? round($avg_percentage / $total_students, 1) : 0;
 ?>
 
-<!-- The rest of your HTML/PHP code remains exactly the same -->
-<!-- Only the PHP data fetching part has been secured -->
-
 <div class="container-fluid">
     <!-- Page Header -->
-    
     <div class="d-sm-flex align-items-center justify-content-between mb-4">
         <h1 class="h3 mb-0 text-gray-800">
             <i class="fas fa-users text-primary"></i> 360° Students Attendance Overview
             <small class="text-muted ms-2">Faculty: <?php echo htmlspecialchars($faculty['faculty_name']); ?></small>
         </h1>
-        <!-- ADD THE BUTTON GROUP HERE (FIXED LOCATION) -->
         <div class="btn-group">
             <button onclick="printReport()" class="btn btn-primary btn-sm">
                 <i class="fas fa-print"></i> Print
@@ -306,6 +326,15 @@ $avg_percentage = $total_students > 0 ? round($avg_percentage / $total_students,
             </a>
         </div>
     </div>
+
+    <!-- Show error if no subjects -->
+    <?php if (isset($no_subjects_message)): ?>
+    <div class="alert alert-warning mb-4">
+        <i class="fas fa-exclamation-triangle me-2"></i>
+        <?php echo $no_subjects_message; ?>
+        <a href="360_students_attendance.php" class="btn btn-sm btn-outline-warning ms-2">Reset Filters</a>
+    </div>
+    <?php endif; ?>
 
     <!-- Statistics Cards -->
     <div class="row mb-4">
@@ -358,7 +387,7 @@ $avg_percentage = $total_students > 0 ? round($avg_percentage / $total_students,
                                 Highest %
                             </div>
                             <div class="h5 mb-0 font-weight-bold text-gray-800">
-                                <?php echo $max_percentage; ?>%
+                                <?php echo $total_students > 0 ? $max_percentage : 0; ?>%
                             </div>
                         </div>
                         <div class="col-auto">
@@ -378,7 +407,7 @@ $avg_percentage = $total_students > 0 ? round($avg_percentage / $total_students,
                                 Lowest %
                             </div>
                             <div class="h5 mb-0 font-weight-bold text-gray-800">
-                                <?php echo $min_percentage; ?>%
+                                <?php echo $total_students > 0 ? $min_percentage : 0; ?>%
                             </div>
                         </div>
                         <div class="col-auto">
@@ -438,15 +467,12 @@ $avg_percentage = $total_students > 0 ? round($avg_percentage / $total_students,
                     <label class="form-label">Subject</label>
                     <select name="subject_id" class="form-control">
                         <option value="">All Subjects</option>
-                        <?php 
-                        mysqli_data_seek($subjects_result, 0);
-                        while($subject = mysqli_fetch_assoc($subjects_result)): ?>
+                        <?php foreach($subjects_data as $subject): ?>
                             <option value="<?php echo intval($subject['subject_id']); ?>" 
                                 <?php echo ($subject_filter == $subject['subject_id']) ? 'selected' : ''; ?>>
                                 <?php echo htmlspecialchars($subject['subject_code'] . ' - ' . $subject['subject_name']); ?>
                             </option>
-                        <?php endwhile; ?>
-                        <?php mysqli_stmt_close($subjects_stmt); ?>
+                        <?php endforeach; ?>
                     </select>
                 </div>
                 
@@ -454,14 +480,12 @@ $avg_percentage = $total_students > 0 ? round($avg_percentage / $total_students,
                     <label class="form-label">Section</label>
                     <select name="section" class="form-control">
                         <option value="">All Sections</option>
-                        <?php 
-                        mysqli_data_seek($sections_result, 0);
-                        while($section = mysqli_fetch_assoc($sections_result)): ?>
+                        <?php foreach($sections_data as $section): ?>
                             <option value="<?php echo htmlspecialchars($section['section']); ?>" 
                                 <?php echo ($section_filter == $section['section']) ? 'selected' : ''; ?>>
                                 Section <?php echo htmlspecialchars($section['section']); ?>
                             </option>
-                        <?php endwhile; ?>
+                        <?php endforeach; ?>
                     </select>
                 </div>
                 
@@ -532,7 +556,7 @@ $avg_percentage = $total_students > 0 ? round($avg_percentage / $total_students,
             </div>
         </div>
         <div class="card-body">
-            <?php if ($total_records > 0): ?>
+            <?php if ($total_records > 0 && !empty($subject_sessions)): ?>
                 <div class="table-responsive" id="attendanceTable">
                     <table class="table table-bordered table-hover table-striped" width="100%" cellspacing="0">
                         <thead class="bg-light">
@@ -772,6 +796,7 @@ $avg_percentage = $total_students > 0 ? round($avg_percentage / $total_students,
     </div>
 
     <!-- Summary Statistics -->
+    <?php if ($total_records > 0 && !empty($subject_sessions)): ?>
     <div class="row">
         <div class="col-lg-6">
             <div class="card shadow mb-4">
@@ -867,13 +892,13 @@ $avg_percentage = $total_students > 0 ? round($avg_percentage / $total_students,
                                     </td>
                                     <td>
                                         <small>
-                                            <?php echo htmlspecialchars($subject_avg['top_student']['name']); ?><br>
+                                            <?php echo !empty($subject_avg['top_student']['name']) ? htmlspecialchars($subject_avg['top_student']['name']) : 'N/A'; ?><br>
                                             <span class="badge bg-success"><?php echo $subject_avg['top_student']['percentage']; ?>%</span>
                                         </small>
                                     </td>
                                     <td>
                                         <small>
-                                            <?php echo htmlspecialchars($subject_avg['lowest_student']['name']); ?><br>
+                                            <?php echo !empty($subject_avg['lowest_student']['name']) ? htmlspecialchars($subject_avg['lowest_student']['name']) : 'N/A'; ?><br>
                                             <span class="badge bg-danger"><?php echo $subject_avg['lowest_student']['percentage']; ?>%</span>
                                         </small>
                                     </td>
@@ -972,6 +997,7 @@ $avg_percentage = $total_students > 0 ? round($avg_percentage / $total_students,
             </div>
         </div>
     </div>
+    <?php endif; ?>
 </div>
 
 <!-- Export Options Modal -->
@@ -1307,52 +1333,17 @@ function processExport() {
 
 // View student details
 function viewStudentDetails(studentId) {
-    // You can implement this function if you have a student details page
     alert('View student details for: ' + studentId);
-    // window.open(`student_profile_view.php?id=${studentId}`, '_blank');
 }
 
 // View attendance history
 function viewAttendanceHistory(studentId) {
-    // You can implement this function if you have an attendance history page
     alert('View attendance history for: ' + studentId);
-    // window.open(`student_attendance_history.php?student_id=${studentId}`, '_blank');
 }
 
 // Generate student report
 function generateStudentReport(studentId) {
-    // You can implement this function if you have a report generation page
     alert('Generate report for: ' + studentId);
-    // window.open(`generate_student_report.php?student_id=${studentId}`, '_blank');
-}
-
-// Initialize tooltips if Bootstrap is loaded
-if (typeof bootstrap !== 'undefined') {
-    document.addEventListener('DOMContentLoaded', function() {
-        var tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
-        var tooltipList = tooltipTriggerList.map(function (tooltipTriggerEl) {
-            return new bootstrap.Tooltip(tooltipTriggerEl);
-        });
-    });
-}
-
-// Show a simple alert for export actions
-function showExportAlert(message, type) {
-    const alertDiv = document.createElement('div');
-    alertDiv.className = `alert alert-${type} alert-dismissible fade show position-fixed`;
-    alertDiv.style.cssText = 'top: 20px; right: 20px; z-index: 9999;';
-    alertDiv.innerHTML = `
-        ${message}
-        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
-    `;
-    document.body.appendChild(alertDiv);
-    
-    // Auto remove after 3 seconds
-    setTimeout(() => {
-        if (alertDiv.parentNode) {
-            alertDiv.remove();
-        }
-    }, 3000);
 }
 </script>
 
