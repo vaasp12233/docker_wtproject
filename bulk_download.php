@@ -323,15 +323,21 @@ if (isset($_GET['export'])) {
                 $student_info['id_number']
             ];
             
-            // Add ALL subject data
+            // Add ALL subject data - FIXED: Prevent Excel date conversion
             foreach ($subject_sessions as $subject_id => $subject) {
                 $subject_data = isset($data['subjects'][$subject_id]) ? $data['subjects'][$subject_id] : ['percentage' => 0, 'attended' => 0, 'total' => $subject['total_sessions']];
                 $row[] = $subject_data['percentage'] . '%';
-                $row[] = $subject_data['attended'] . '/' . $subject_data['total'];
+                
+                // FIX: Format as "Attended/Total" with single digits prefixed
+                $attended_formatted = sprintf("%d/%d", $subject_data['attended'], $subject_data['total']);
+                $row[] = $attended_formatted;
             }
             
             $row[] = $data['overall_percentage'] . '%';
-            $row[] = $data['total_attended'] . '/' . $data['total_sessions'];
+            
+            // FIX: Format overall count to prevent date conversion
+            $overall_formatted = sprintf("%d/%d", $data['total_attended'], $data['total_sessions']);
+            $row[] = $overall_formatted;
             $row[] = $status;
             
             fputcsv($output, $row);
@@ -373,6 +379,7 @@ if (isset($_GET['export'])) {
                 th, td { border: 1px solid #ddd; padding: 6px; text-align: center; font-size: 11px; }
                 th { background-color: #f2f2f2; font-weight: bold; }
                 .summary { margin-top: 20px; }
+                .text-cell { mso-number-format:\@; } /* Excel format to keep as text */
             </style>
         </head>
         <body>';
@@ -411,20 +418,26 @@ if (isset($_GET['export'])) {
             
             echo '<tr>
                     <td>' . $counter++ . '</td>
-                    <td>' . $student_info['student_id'] . '</td>
+                    <td class="text-cell">' . $student_info['student_id'] . '</td>
                     <td>' . $student_info['student_name'] . '</td>
-                    <td>' . $student_info['section'] . '</td>
+                    <td class="text-cell">' . $student_info['section'] . '</td>
                     <td>' . $student_info['student_department'] . '</td>
-                    <td>' . $student_info['id_number'] . '</td>';
+                    <td class="text-cell">' . $student_info['id_number'] . '</td>';
             
             foreach ($subject_sessions as $subject_id => $subject) {
                 $subject_data = isset($data['subjects'][$subject_id]) ? $data['subjects'][$subject_id] : ['percentage' => 0, 'attended' => 0, 'total' => $subject['total_sessions']];
                 echo '<td>' . $subject_data['percentage'] . '%</td>';
-                echo '<td>' . $subject_data['attended'] . '/' . $subject_data['total'] . '</td>';
+                
+                // FIX: Add class to prevent Excel date conversion
+                $attended_formatted = sprintf("%d/%d", $subject_data['attended'], $subject_data['total']);
+                echo '<td class="text-cell">' . $attended_formatted . '</td>';
             }
             
-            echo '<td>' . $data['overall_percentage'] . '%</td>
-                  <td>' . $data['total_attended'] . '/' . $data['total_sessions'] . '</td>
+            echo '<td>' . $data['overall_percentage'] . '%</td>';
+            
+            // FIX: Add class to prevent Excel date conversion
+            $overall_formatted = sprintf("%d/%d", $data['total_attended'], $data['total_sessions']);
+            echo '<td class="text-cell">' . $overall_formatted . '</td>
                   <td>' . $status . '</td>
                 </tr>';
         }
