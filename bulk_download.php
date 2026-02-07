@@ -73,112 +73,153 @@ if ($min_attendance > $max_attendance) {
     $max_attendance = $temp;
 }
 
-// OPTIMIZED QUERY: Get all students with attendance data in ONE query
-$student_query = "SELECT 
+// SIMPLIFIED QUERY: Get all subjects first
+$all_subjects_query = "SELECT DISTINCT s.subject_id, s.subject_code, s.subject_name 
+                       FROM sessions ses
+                       JOIN subjects s ON ses.subject_id = s.subject_id
+                       WHERE ses.faculty_id = ?";
+                       
+$all_subjects_params = [$faculty_id];
+if ($subject_filter > 0) {
+    $all_subjects_query .= " AND s.subject_id = ?";
+    $all_subjects_params[] = $subject_filter;
+}
+$all_subjects_query .= " ORDER BY s.subject_name";
+
+$all_subjects_stmt = mysqli_prepare($conn, $all_subjects_query);
+if ($subject_filter > 0) {
+    mysqli_stmt_bind_param($all_subjects_stmt, "si", $faculty_id, $subject_filter);
+} else {
+    mysqli_stmt_bind_param($all_subjects_stmt, "s", $faculty_id);
+}
+mysqli_stmt_execute($all_subjects_stmt);
+$all_subjects_result = mysqli_stmt_get_result($all_subjects_stmt);
+
+$subject_sessions = [];
+while ($subject = mysqli_fetch_assoc($all_subjects_result)) {
+    $subject_sessions[$subject['subject_id']] = [
+        'subject_id' => $subject['subject_id'],
+        'subject_code' => $subject['subject_code'],
+        'subject_name' => $subject['subject_name'],
+        'total_sessions' => 0 // Will be calculated later
+    ];
+}
+mysqli_stmt_close($all_subjects_stmt);
+
+// Get total sessions per subject
+foreach ($subject_sessions as $subject_id => $subject) {
+    $session_count_query = "SELECT COUNT(DISTINCT session_id) as total_sessions 
+                           FROM sessions 
+                           WHERE faculty_id = ? 
+                           AND subject_id = ?";
+    
+    if (!empty($date_from) && !empty($date_to)) {
+        $session_count_query .= " AND DATE(start_time) BETWEEN ? AND ?";
+        $session_count_params = [$faculty_id, $subject_id, $date_from, $date_to];
+        $session_count_stmt = mysqli_prepare($conn, $session_count_query);
+        mysqli_stmt_bind_param($session_count_stmt, "siss", $faculty_id, $subject_id, $date_from, $date_to);
+    } else {
+        $session_count_params = [$faculty_id, $subject_id];
+        $session_count_stmt = mysqli_prepare($conn, $session_count_query);
+        mysqli_stmt_bind_param($session_count_stmt, "si", $faculty_id, $subject_id);
+    }
+    
+    mysqli_stmt_execute($session_count_stmt);
+    $session_count_result = mysqli_stmt_get_result($session_count_stmt);
+    $session_count = mysqli_fetch_assoc($session_count_result);
+    $subject_sessions[$subject_id]['total_sessions'] = $session_count['total_sessions'] ?: 0;
+    mysqli_stmt_close($session_count_stmt);
+}
+
+// Get all students with filters
+$student_base_query = "SELECT 
                     s.student_id,
                     s.student_name,
                     s.section,
                     s.student_department,
-                    s.id_number,
-                    sub.subject_id,
-                    sub.subject_code,
-                    sub.subject_name,
-                    COUNT(DISTINCT ses.session_id) as total_sessions,
-                    COUNT(DISTINCT ar.record_id) as attended_sessions
+                    s.id_number
                    FROM students s
-                   CROSS JOIN subjects sub
-                   LEFT JOIN sessions ses ON sub.subject_id = ses.subject_id 
-                        AND ses.faculty_id = ?
-                        AND (? = '' OR DATE(ses.start_time) >= ?)
-                        AND (? = '' OR DATE(ses.start_time) <= ?)
-                        AND (? = 0 OR sub.subject_id = ?)
-                   LEFT JOIN attendance_records ar ON ar.student_id = s.student_id 
-                        AND ar.session_id = ses.session_id
-                        AND (? = '' OR DATE(ar.marked_at) >= ?)
-                        AND (? = '' OR DATE(ar.marked_at) <= ?)
                    WHERE 1=1";
 
-$student_params = [
-    $faculty_id,                    // ses.faculty_id
-    $date_from, $date_from,         // start_time >=
-    $date_to, $date_to,             // start_time <=
-    $subject_filter, $subject_filter, // subject filter
-    $date_from, $date_from,         // marked_at >=
-    $date_to, $date_to              // marked_at <=
-];
-$student_param_types = "sssssiiissss";
+$student_params = [];
+$student_param_types = "";
 
 if (!empty($section_filter)) {
-    $student_query .= " AND s.section = ?";
+    $student_base_query .= " AND s.section = ?";
     $student_params[] = $section_filter;
     $student_param_types .= "s";
 }
 
 if (!empty($search_query)) {
-    $student_query .= " AND (s.student_name LIKE ? OR s.student_id LIKE ? OR s.id_number LIKE ?)";
+    $student_base_query .= " AND (s.student_name LIKE ? OR s.student_id LIKE ? OR s.id_number LIKE ?)";
     $student_params[] = "%$search_query%";
     $student_params[] = "%$search_query%";
     $student_params[] = "%$search_query%";
     $student_param_types .= "sss";
 }
 
-$student_query .= " GROUP BY s.student_id, sub.subject_id
-                   ORDER BY s.section, s.student_name, sub.subject_name";
+$student_base_query .= " ORDER BY s.section, s.student_name";
 
-$student_stmt = mysqli_prepare($conn, $student_query);
-mysqli_stmt_bind_param($student_stmt, $student_param_types, ...$student_params);
+$student_stmt = mysqli_prepare($conn, $student_base_query);
+if (!empty($student_params)) {
+    mysqli_stmt_bind_param($student_stmt, $student_param_types, ...$student_params);
+}
 mysqli_stmt_execute($student_stmt);
-$student_result = mysqli_stmt_get_result($student_stmt);
+$students_result = mysqli_stmt_get_result($student_stmt);
 
 // Process student data
 $student_attendance_data = [];
-$subject_sessions = []; // Store total sessions per subject
 
-while ($row = mysqli_fetch_assoc($student_result)) {
-    $student_id = $row['student_id'];
-    $subject_id = $row['subject_id'];
+while ($student = mysqli_fetch_assoc($students_result)) {
+    $student_id = $student['student_id'];
     
-    // Initialize student data if not exists
-    if (!isset($student_attendance_data[$student_id])) {
-        $student_attendance_data[$student_id] = [
-            'info' => [
-                'student_id' => $row['student_id'],
-                'student_name' => $row['student_name'],
-                'section' => $row['section'],
-                'student_department' => $row['student_department'],
-                'id_number' => $row['id_number']
-            ],
-            'subjects' => [],
-            'total_attended' => 0,
-            'total_sessions' => 0,
-            'overall_percentage' => 0
-        ];
-    }
-    
-    // Store subject session count
-    if (!isset($subject_sessions[$subject_id])) {
-        $subject_sessions[$subject_id] = [
-            'subject_id' => $subject_id,
-            'subject_code' => $row['subject_code'],
-            'subject_name' => $row['subject_name'],
-            'total_sessions' => $row['total_sessions']
-        ];
-    }
-    
-    // Calculate subject percentage
-    $total_sessions = $row['total_sessions'] ?: 0;
-    $attended = $row['attended_sessions'] ?: 0;
-    $percentage = ($total_sessions > 0) ? round(($attended / $total_sessions) * 100, 1) : 0;
-    
-    $student_attendance_data[$student_id]['subjects'][$subject_id] = [
-        'attended' => $attended,
-        'total' => $total_sessions,
-        'percentage' => $percentage
+    $student_attendance_data[$student_id] = [
+        'info' => $student,
+        'subjects' => [],
+        'total_attended' => 0,
+        'total_sessions' => 0,
+        'overall_percentage' => 0
     ];
     
-    // Update totals
-    $student_attendance_data[$student_id]['total_attended'] += $attended;
-    $student_attendance_data[$student_id]['total_sessions'] += $total_sessions;
+    // Get attendance for each subject
+    foreach ($subject_sessions as $subject_id => $subject_info) {
+        $attendance_query = "SELECT COUNT(DISTINCT ar.record_id) as attended_sessions
+                            FROM attendance_records ar
+                            JOIN sessions ses ON ar.session_id = ses.session_id
+                            WHERE ar.student_id = ?
+                            AND ses.faculty_id = ?
+                            AND ses.subject_id = ?";
+        
+        $attendance_params = [$student_id, $faculty_id, $subject_id];
+        $attendance_param_types = "ssi";
+        
+        if (!empty($date_from) && !empty($date_to)) {
+            $attendance_query .= " AND DATE(ar.marked_at) BETWEEN ? AND ?";
+            $attendance_params[] = $date_from;
+            $attendance_params[] = $date_to;
+            $attendance_param_types .= "ss";
+        }
+        
+        $attendance_stmt = mysqli_prepare($conn, $attendance_query);
+        mysqli_stmt_bind_param($attendance_stmt, $attendance_param_types, ...$attendance_params);
+        mysqli_stmt_execute($attendance_stmt);
+        $attendance_result = mysqli_stmt_get_result($attendance_stmt);
+        $attendance_data = mysqli_fetch_assoc($attendance_result);
+        mysqli_stmt_close($attendance_stmt);
+        
+        $total_sessions = $subject_info['total_sessions'];
+        $attended = $attendance_data['attended_sessions'] ?: 0;
+        $percentage = ($total_sessions > 0) ? round(($attended / $total_sessions) * 100, 1) : 0;
+        
+        $student_attendance_data[$student_id]['subjects'][$subject_id] = [
+            'attended' => $attended,
+            'total' => $total_sessions,
+            'percentage' => $percentage
+        ];
+        
+        $student_attendance_data[$student_id]['total_attended'] += $attended;
+        $student_attendance_data[$student_id]['total_sessions'] += $total_sessions;
+    }
 }
 
 mysqli_stmt_close($student_stmt);
