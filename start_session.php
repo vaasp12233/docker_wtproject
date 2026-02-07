@@ -14,8 +14,6 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
     $section_targeted = $_POST['section_targeted'];
     $class_type = $_POST['class_type'];
     
-    // Generate base session ID
-    $base_session_id = uniqid('ses_', true);
     $current_time = date('Y-m-d H:i:s');
     
     if ($class_type === 'lab') {
@@ -30,7 +28,6 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         $first_session_id = null;
         
         foreach ($lab_types as $lab_type => $hour_delay) {
-            $session_id = $base_session_id . '_' . substr($lab_type, 0, 1);
             $scheduled_start = date('Y-m-d H:i:s', strtotime("+{$hour_delay} hours"));
             
             // Check if lab_type column exists
@@ -38,17 +35,16 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             $has_lab_type = mysqli_num_rows($check_column) > 0;
             
             if ($has_lab_type) {
-                // Insert with lab_type column - CORRECTED: Use Start_time (not scheduled_start)
+                // Insert with lab_type column - session_id will auto-increment
                 $query = "INSERT INTO sessions 
-                         (session_id, faculty_id, subject_id, section_targeted, class_type, lab_type, created_at, Start_time, is_active) 
-                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)";
+                         (faculty_id, subject_id, section_targeted, class_type, lab_type, created_at, Start_time, is_active) 
+                         VALUES (?, ?, ?, ?, ?, ?, ?, ?)";
                 
                 $stmt = mysqli_prepare($conn, $query);
                 
                 // Only pre-lab is active immediately
                 $is_active = ($lab_type == 'pre-lab') ? 1 : 0;
-                mysqli_stmt_bind_param($stmt, "ssisssssi", 
-                    $session_id, 
+                mysqli_stmt_bind_param($stmt, "issssssi", 
                     $faculty_id, 
                     $subject_id, 
                     $section_targeted, 
@@ -59,17 +55,16 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                     $is_active
                 );
             } else {
-                // Insert without lab_type column - CORRECTED: Use Start_time (not scheduled_start)
+                // Insert without lab_type column - session_id will auto-increment
                 $query = "INSERT INTO sessions 
-                         (session_id, faculty_id, subject_id, section_targeted, class_type, created_at, Start_time, is_active) 
-                         VALUES (?, ?, ?, ?, ?, ?, ?, ?)";
+                         (faculty_id, subject_id, section_targeted, class_type, created_at, Start_time, is_active) 
+                         VALUES (?, ?, ?, ?, ?, ?, ?)";
                 
                 $stmt = mysqli_prepare($conn, $query);
                 
                 // Only pre-lab is active immediately
                 $is_active = ($lab_type == 'pre-lab') ? 1 : 0;
-                mysqli_stmt_bind_param($stmt, "ssissssi", 
-                    $session_id, 
+                mysqli_stmt_bind_param($stmt, "isssssi", 
                     $faculty_id, 
                     $subject_id, 
                     $section_targeted, 
@@ -82,11 +77,12 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             
             if (mysqli_stmt_execute($stmt)) {
                 $created_sessions++;
+                $last_insert_id = mysqli_insert_id($conn);
                 
                 // Store first session ID for redirection
                 if ($lab_type == 'pre-lab') {
-                    $first_session_id = $session_id;
-                    $_SESSION['current_session'] = $session_id;
+                    $first_session_id = $last_insert_id;
+                    $_SESSION['current_session'] = $last_insert_id;
                 }
             } else {
                 // DEBUG: Log error for debugging
@@ -112,19 +108,17 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         
     } else {
         // ============= CREATE NORMAL SINGLE SESSION =============
-        // CORRECTED: Added is_active parameter to binding (but it's hardcoded as 1 in query)
-        // The query is correct as it has ", 1)" at the end which sets is_active=1
+        // session_id is auto-increment, so don't include it in the insert
         $query = "INSERT INTO sessions 
-                 (session_id, faculty_id, subject_id, section_targeted, class_type, created_at, is_active) 
-                 VALUES (?, ?, ?, ?, ?, ?, 1)";
+                 (faculty_id, subject_id, section_targeted, class_type, created_at, is_active) 
+                 VALUES (?, ?, ?, ?, ?, 1)";
         
         $stmt = mysqli_prepare($conn, $query);
         
         // DEBUG: Check if all variables are set
-        error_log("DEBUG - Normal session: session_id=$base_session_id, faculty_id=$faculty_id, subject_id=$subject_id, section_targeted=$section_targeted, class_type=$class_type, time=$current_time");
+        error_log("DEBUG - Normal session: faculty_id=$faculty_id, subject_id=$subject_id, section_targeted=$section_targeted, class_type=$class_type, time=$current_time");
         
-        mysqli_stmt_bind_param($stmt, "ssiss", 
-            $base_session_id, 
+        mysqli_stmt_bind_param($stmt, "isss", 
             $faculty_id, 
             $subject_id, 
             $section_targeted, 
@@ -133,12 +127,13 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         );
         
         if (mysqli_stmt_execute($stmt)) {
-            $_SESSION['current_session'] = $base_session_id;
+            $last_insert_id = mysqli_insert_id($conn);
+            $_SESSION['current_session'] = $last_insert_id;
             $_SESSION['success_message'] = "Attendance session started successfully!";
             mysqli_stmt_close($stmt);
 
             // Redirect with session ID
-            header('Location: faculty_scan.php?session_id=' . urlencode($base_session_id));
+            header('Location: faculty_scan.php?session_id=' . urlencode($last_insert_id));
             exit;
         } else {
             $error = mysqli_error($conn);
