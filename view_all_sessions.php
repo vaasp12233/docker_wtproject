@@ -17,8 +17,8 @@ $faculty_query = "SELECT * FROM faculty WHERE faculty_id = ?";
 $faculty_stmt = mysqli_prepare($conn, $faculty_query);
 mysqli_stmt_bind_param($faculty_stmt, "s", $faculty_id);
 mysqli_stmt_execute($faculty_stmt);
-$faculty_result = mysqli_stmt_get_result($faculty_stmt);
-$faculty = mysqli_fetch_assoc($faculty_stmt);
+$faculty_result = mysqli_stmt_get_result($faculty_stmt); // Get the result FIRST
+$faculty = mysqli_fetch_assoc($faculty_result); // Then fetch from the result
 mysqli_stmt_close($faculty_stmt);
 
 // ==================== Get faculty's allowed subjects ====================
@@ -73,6 +73,33 @@ if ($has_allowed_subjects) {
         $params = array_merge([$faculty_id], $allowed_subjects_array);
         $types = "s" . str_repeat('s', count($allowed_subjects_array));
         mysqli_stmt_bind_param($sessions_stmt, $types, ...$params);
+        mysqli_stmt_execute($sessions_stmt);
+        $sessions_result = mysqli_stmt_get_result($sessions_stmt); // Get result object
+        
+        while ($session = mysqli_fetch_assoc($sessions_result)) { // Fetch from result
+            // Get attendance count for this session
+            $att_count_query = mysqli_query($conn, 
+                "SELECT COUNT(*) as count FROM attendance_records 
+                 WHERE session_id = '{$session['session_id']}'");
+            $att_count = $att_count_query ? mysqli_fetch_assoc($att_count_query)['count'] : 0;
+            
+            $session['attendance_count'] = $att_count;
+            $sessions_data[] = $session;
+        }
+        mysqli_stmt_close($sessions_stmt);
+    }
+} else {
+    // If no allowed subjects, try to get sessions directly without subject filter
+    $sessions_query = "SELECT s.*, sub.subject_code, sub.subject_name 
+                      FROM sessions s 
+                      LEFT JOIN subjects sub ON s.subject_id = sub.subject_id 
+                      WHERE s.faculty_id = ?
+                      ORDER BY s.$time_column DESC";
+    
+    $sessions_stmt = mysqli_prepare($conn, $sessions_query);
+    
+    if ($sessions_stmt) {
+        mysqli_stmt_bind_param($sessions_stmt, "s", $faculty_id);
         mysqli_stmt_execute($sessions_stmt);
         $sessions_result = mysqli_stmt_get_result($sessions_stmt);
         
