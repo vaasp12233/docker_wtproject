@@ -74,7 +74,7 @@ if ($conn) {
 
     // Get student's attendance - USING PREPARED STATEMENTS
     if ($student) {
-        $attendance_query = "SELECT ar.*, s.subject_code, s.subject_name, ses.session_id, ses.start_time
+        $attendance_query = "SELECT ar.*, s.subject_code, s.subject_name, ses.session_id, ses.start_time, ses.class_type, ses.lab_type
                             FROM attendance_records ar 
                             JOIN sessions ses ON ar.session_id = ses.session_id
                             JOIN subjects s ON ses.subject_id = s.subject_id
@@ -150,16 +150,28 @@ if ($attendance_result) {
     $total_attendance = mysqli_num_rows($attendance_result);
 }
 
-// Calculate attendance percentage
-$attendance_percentage = 0;
-if ($total_possible_sessions > 0) {
-    $attendance_percentage = round(($total_attendance / $total_possible_sessions) * 100, 1);
+// ==================== GET SESSIONS HAPPENED ====================
+// Count how many sessions have actually happened (past sessions)
+$sessions_happened = 0;
+if ($conn) {
+    $happened_query = "SELECT COUNT(*) as total_happened FROM sessions WHERE start_time <= NOW()";
+    $happened_result = mysqli_query($conn, $happened_query);
+    if ($happened_result && $row = mysqli_fetch_assoc($happened_result)) {
+        $sessions_happened = $row['total_happened'];
+    }
 }
 
-// Determine attendance status
+// ==================== CALCULATE ATTENDANCE PERCENTAGE ====================
+// Attendance % = (sessions attended / sessions happened) × 100
+$attendance_percentage = 0;
+if ($sessions_happened > 0) {
+    $attendance_percentage = round(($total_attendance / $sessions_happened) * 100, 1);
+}
+
+// Determine attendance status based on attendance percentage
 $attendance_status = "No Data";
 $attendance_class = "secondary";
-if ($total_possible_sessions > 0) {
+if ($sessions_happened > 0) {
     if ($attendance_percentage >= 85) {
         $attendance_status = "Excellent";
         $attendance_class = "success";
@@ -179,6 +191,7 @@ if ($total_possible_sessions > 0) {
 }
 
 // ==================== Calculate 75% Attendance Predictor ====================
+// This stays the same - based on total possible sessions
 $sessions_for_75_percent = 0;
 $remaining_for_75_percent = 0;
 
@@ -687,6 +700,7 @@ $default_avatar = 'default.png';
                         <i class="fas fa-percentage"></i> <?php echo $attendance_percentage; ?>%
                     </div>
                     <h6 class="mb-0">Attendance %</h6>
+                    <div class="small mb-2">(<?php echo $total_attendance; ?>/<?php echo $sessions_happened; ?> sessions)</div>
                     <span class="badge bg-<?php echo $attendance_class; ?> attendance-status-badge">
                         <?php echo $attendance_status; ?>
                     </span>
@@ -793,7 +807,7 @@ $default_avatar = 'default.png';
                             </div>
                         </div>
                         <div class="progress-percentage text-center">
-                            <?php echo $attendance_percentage; ?>% (<?php echo $total_attendance; ?>/<?php echo $total_possible_sessions; ?> sessions)
+                            <?php echo $attendance_percentage; ?>% (<?php echo $total_attendance; ?>/<?php echo $sessions_happened; ?> sessions)
                         </div>
                         
                         <!-- Subjects Breakdown -->
@@ -806,6 +820,7 @@ $default_avatar = 'default.png';
                             <div class="subject-item">
                                 <span>Lab Sessions <span class="lab-badge">Lab</span></span>
                                 <span><strong><?php echo $lab_sessions; ?></strong> sessions</span>
+                                <small class="text-muted">(<?php echo ceil($lab_sessions / 3); ?> lab classes)</small>
                             </div>
                             <div class="subject-item">
                                 <span>Total Sessions</span>
@@ -832,7 +847,7 @@ $default_avatar = 'default.png';
                             
                             <div class="session-info mt-2">
                                 <i class="fas fa-info-circle me-1"></i>
-                                Based on <?php echo count($subjects_data); ?> subjects from database
+                                Note: Each lab session counts as 1. <?php echo ceil($lab_sessions / 3); ?> actual lab classes needed.
                             </div>
                         </div>
                     </div>
@@ -925,6 +940,7 @@ $default_avatar = 'default.png';
                                     <tr>
                                         <th>Date</th>
                                         <th>Subject</th>
+                                        <th>Type</th>
                                         <th>Time</th>
                                         <th>Status</th>
                                     </tr>
@@ -935,14 +951,29 @@ $default_avatar = 'default.png';
                                     while ($record = mysqli_fetch_assoc($attendance_result)): 
                                         $subject_name = $record['subject_name'] ?? '';
                                         $subject_code = $record['subject_code'] ?? '';
+                                        $class_type = $record['class_type'] ?? '';
+                                        $lab_type = $record['lab_type'] ?? '';
                                         
-                                        // Check if it's a lab
+                                        // Check if it's a lab based on class_type and lab_type
                                         $is_lab = false;
-                                        $subject_lower = strtolower($subject_name . ' ' . $subject_code);
-                                        if (strpos($subject_lower, 'lab') !== false || 
-                                            strpos($subject_lower, 'practical') !== false ||
-                                            strpos($subject_lower, 'prac') !== false) {
+                                        if ($class_type === 'lab') {
                                             $is_lab = true;
+                                        } elseif ($class_type === 'normal' && $lab_type === 'lecture') {
+                                            $is_lab = false;
+                                        }
+                                        
+                                        // Determine session type display
+                                        $session_type_display = "Lecture";
+                                        if ($is_lab) {
+                                            if ($lab_type === 'pre-lab') {
+                                                $session_type_display = "Pre-Lab";
+                                            } elseif ($lab_type === 'during-lab') {
+                                                $session_type_display = "During-Lab";
+                                            } elseif ($lab_type === 'post-lab') {
+                                                $session_type_display = "Post-Lab";
+                                            } else {
+                                                $session_type_display = "Lab";
+                                            }
                                         }
                                     ?>
                                     <tr>
@@ -961,6 +992,13 @@ $default_avatar = 'default.png';
                                             <small class="text-muted"><?php echo htmlspecialchars($subject_name); ?></small>
                                         </td>
                                         <td>
+                                            <?php if ($is_lab): ?>
+                                                <span class="badge bg-info"><?php echo $session_type_display; ?></span>
+                                            <?php else: ?>
+                                                <span class="badge bg-primary"><?php echo $session_type_display; ?></span>
+                                            <?php endif; ?>
+                                        </td>
+                                        <td>
                                             <i class="fas fa-clock text-success me-1"></i>
                                             <?php echo date('h:i A', strtotime($record['marked_at'])); ?>
                                         </td>
@@ -971,7 +1009,7 @@ $default_avatar = 'default.png';
                                             <br>
                                             <small class="text-muted session-info">
                                                 <?php if ($is_lab): ?>
-                                                    Lab session
+                                                    Lab session (counts as 1)
                                                 <?php else: ?>
                                                     Theory session
                                                 <?php endif; ?>
