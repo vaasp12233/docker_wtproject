@@ -534,76 +534,29 @@ include 'header.php';
                             <div class="col-md-3">
                                 <label class="form-label fw-bold">Class Type <span class="text-danger">*</span></label>
                                 <select class="form-select" name="class_type" required id="classTypeSelect">
-                                    <option value="Normal">Normal Class</option>
-                                    <option value="Lab">Lab Session</option>
-                                    <option value="Tutorial">Tutorial</option>
-                                    <option value="Project">Project</option>
+                                    <option value="normal">Normal Class</option>
+                                    <option value="lab">Lab Session</option>
                                 </select>
                                 <small class="text-muted">Type of class session</small>
                             </div>
                             
-                            <!-- LAB TYPE SELECTION (SHOWN ONLY WHEN LAB IS SELECTED) -->
-                            <div class="col-md-12" id="labTypeSection" style="display: none;">
-                                <label class="form-label fw-bold">Lab Session Type <span class="text-danger">*</span></label>
-                                <div class="row">
-                                    <div class="col-md-4">
-                                        <div class="form-check">
-                                            <input class="form-check-input" type="radio" name="lab_type" id="preLab" value="pre-lab">
-                                            <label class="form-check-label" for="preLab">
-                                                <i class="fas fa-clock text-info me-1"></i> Pre-Lab
-                                            </label>
-                                            <small class="d-block text-muted">Before lab starts</small>
-                                        </div>
-                                    </div>
-                                    <div class="col-md-4">
-                                        <div class="form-check">
-                                            <input class="form-check-input" type="radio" name="lab_type" id="duringLab" value="during-lab" checked>
-                                            <label class="form-check-label" for="duringLab">
-                                                <i class="fas fa-flask text-success me-1"></i> During Lab
-                                            </label>
-                                            <small class="d-block text-muted">Main lab session</small>
-                                        </div>
-                                    </div>
-                                    <div class="col-md-4">
-                                        <div class="form-check">
-                                            <input class="form-check-input" type="radio" name="lab_type" id="postLab" value="post-lab">
-                                            <label class="form-check-label" for="postLab">
-                                                <i class="fas fa-clipboard-check text-warning me-1"></i> Post-Lab
-                                            </label>
-                                            <small class="d-block text-muted">After lab completion</small>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                            
-                            <!-- NORMAL CLASS TYPE SELECTION (SHOWN WHEN NORMAL IS SELECTED) -->
-                            <div class="col-md-12" id="normalTypeSection" style="display: none;">
-                                <label class="form-label fw-bold">Normal Class Type</label>
-                                <div class="row">
-                                    <div class="col-md-6">
-                                        <div class="form-check">
-                                            <input class="form-check-input" type="radio" name="lab_type" id="normalLecture" value="lecture" checked>
-                                            <label class="form-check-label" for="normalLecture">
-                                                <i class="fas fa-chalkboard-teacher text-primary me-1"></i> Lecture
-                                            </label>
-                                            <small class="d-block text-muted">Regular classroom teaching</small>
-                                        </div>
-                                    </div>
-                                    <div class="col-md-6">
-                                        <div class="form-check">
-                                            <input class="form-check-input" type="radio" name="lab_type" id="normalTutorial" value="tutorial">
-                                            <label class="form-check-label" for="normalTutorial">
-                                                <i class="fas fa-chalkboard text-info me-1"></i> Tutorial
-                                            </label>
-                                            <small class="d-block text-muted">Problem-solving session</small>
-                                        </div>
-                                    </div>
+                            <!-- LAB TIMING INFORMATION (SHOWN ONLY WHEN LAB IS SELECTED) -->
+                            <div class="col-md-12" id="labInfoSection" style="display: none;">
+                                <div class="alert alert-info">
+                                    <h6><i class="fas fa-info-circle me-2"></i> Lab Session Information</h6>
+                                    <p class="mb-2"><strong>When you select "Lab Session", three sessions will be created:</strong></p>
+                                    <ol class="mb-0">
+                                        <li><strong>Pre-Lab Session</strong> - Starts immediately (1 hour duration)</li>
+                                        <li><strong>During-Lab Session</strong> - Starts after 1 hour (1 hour duration)</li>
+                                        <li><strong>Post-Lab Session</strong> - Starts after 2 hours (1 hour duration)</li>
+                                    </ol>
+                                    <p class="mt-2 mb-0"><strong>Note:</strong> Only one lab session will be active at a time.</p>
                                 </div>
                             </div>
                             
                             <div class="col-12 mt-4">
                                 <?php if ($has_custom_password): ?>
-                                <button type="submit" class="btn btn-primary btn-lg w-100">
+                                <button type="submit" class="btn btn-primary btn-lg w-100" id="submitBtn">
                                     <i class="fas fa-play me-2"></i> Start Attendance Session
                                 </button>
                                 <?php else: ?>
@@ -695,7 +648,11 @@ include 'header.php';
                                         </small>
                                         <small class="text-muted">
                                             <i class="fas fa-chalkboard me-1"></i> <?php echo htmlspecialchars($session['class_type'] ?? 'N/A'); ?>
-                                            <?php echo $lab_type_badge; ?>
+                                            <?php if ($has_lab_type && !empty($session['lab_type'])): ?>
+                                                <span class="badge bg-info ms-2">
+                                                    <i class="fas fa-flask me-1"></i> <?php echo ucfirst($session['lab_type']); ?>
+                                                </span>
+                                            <?php endif; ?>
                                         </small>
                                     </div>
                                     <div class="text-end">
@@ -799,33 +756,30 @@ setInterval(updateTime, 60000);
 document.addEventListener('DOMContentLoaded', function() {
     const sessionForm = document.getElementById('sessionForm');
     const classTypeSelect = document.getElementById('classTypeSelect');
-    const labTypeSection = document.getElementById('labTypeSection');
-    const normalTypeSection = document.getElementById('normalTypeSection');
+    const labInfoSection = document.getElementById('labInfoSection');
+    const submitBtn = document.getElementById('submitBtn');
     
-    // Function to toggle lab type visibility
-    function toggleLabType() {
-        if (!classTypeSelect || !labTypeSection || !normalTypeSection) return;
+    // Function to toggle lab info visibility
+    function toggleLabInfo() {
+        if (!classTypeSelect || !labInfoSection || !submitBtn) return;
         
         const selectedClassType = classTypeSelect.value;
         
-        if (selectedClassType === 'Lab') {
-            labTypeSection.style.display = 'block';
-            normalTypeSection.style.display = 'none';
-        } else if (selectedClassType === 'Normal') {
-            labTypeSection.style.display = 'none';
-            normalTypeSection.style.display = 'block';
+        if (selectedClassType === 'lab') {
+            labInfoSection.style.display = 'block';
+            submitBtn.innerHTML = '<i class="fas fa-flask me-2"></i> Create 3 Lab Sessions';
         } else {
-            labTypeSection.style.display = 'none';
-            normalTypeSection.style.display = 'none';
+            labInfoSection.style.display = 'none';
+            submitBtn.innerHTML = '<i class="fas fa-play me-2"></i> Start Attendance Session';
         }
     }
     
     // Initial toggle
-    toggleLabType();
+    toggleLabInfo();
     
     // Add event listener for class type change
     if (classTypeSelect) {
-        classTypeSelect.addEventListener('change', toggleLabType);
+        classTypeSelect.addEventListener('change', toggleLabInfo);
     }
     
     if (sessionForm) {
@@ -837,13 +791,12 @@ document.addEventListener('DOMContentLoaded', function() {
             return false;
             <?php endif; ?>
             
-            // Validation for lab type if lab is selected
+            // Add confirmation for lab sessions
             const selectedClassType = classTypeSelect.value;
-            if (selectedClassType === 'Lab') {
-                const labTypeSelected = document.querySelector('input[name="lab_type"]:checked');
-                if (!labTypeSelected) {
+            if (selectedClassType === 'lab') {
+                const confirmed = confirm('⚠️ Lab Session Alert!\n\nThree lab sessions will be created:\n1. Pre-Lab - Starts now (1 hour)\n2. During-Lab - Starts after 1 hour\n3. Post-Lab - Starts after 2 hours\n\nOnly one lab session will be active at a time.\n\nContinue?');
+                if (!confirmed) {
                     e.preventDefault();
-                    alert('Please select a lab type (Pre-Lab, During Lab, or Post-Lab).');
                     return false;
                 }
             }
