@@ -2,27 +2,11 @@
 session_start();
 require_once 'config.php';
 
-// ============= AUTO-ACTIVATION FUNCTION WITH DEBUGGING =============
+// ============= AUTO-ACTIVATION FUNCTION =============
 function updateSessionStatus($conn) {
     $current_time = date('Y-m-d H:i:s');
     
-    // DEBUG: Log current time
-    error_log("DEBUG updateSessionStatus: Current time = " . $current_time);
-    
-    // 1. First, let's see what sessions we have
-    $check_sessions = "SELECT session_id, lab_type, Start_time, is_active 
-                      FROM sessions 
-                      WHERE class_type = 'lab' 
-                      ORDER BY Start_time";
-    $result = mysqli_query($conn, $check_sessions);
-    while ($row = mysqli_fetch_assoc($result)) {
-        error_log("DEBUG Session: ID=" . $row['session_id'] . 
-                 ", Type=" . $row['lab_type'] . 
-                 ", Start=" . $row['Start_time'] . 
-                 ", Active=" . $row['is_active']);
-    }
-    
-    // 2. Activate sessions whose Start_time has arrived
+    // Activate ALL lab sessions whose Start_time has arrived
     $activate_query = "UPDATE sessions 
                       SET is_active = 1 
                       WHERE Start_time <= ? 
@@ -31,36 +15,7 @@ function updateSessionStatus($conn) {
     $stmt = mysqli_prepare($conn, $activate_query);
     mysqli_stmt_bind_param($stmt, "s", $current_time);
     mysqli_stmt_execute($stmt);
-    $activated = mysqli_stmt_affected_rows($stmt);
     mysqli_stmt_close($stmt);
-    
-    error_log("DEBUG: Activated $activated sessions");
-    
-    // 3. Deactivate pre-lab sessions after 1 MINUTE of their Start_time
-    $deactivate_prelab = "UPDATE sessions 
-                         SET is_active = 0 
-                         WHERE lab_type = 'pre-lab' 
-                         AND is_active = 1
-                         AND Start_time <= DATE_SUB(?, INTERVAL 1 MINUTE)";
-    $stmt = mysqli_prepare($conn, $deactivate_prelab);
-    mysqli_stmt_bind_param($stmt, "s", $current_time);
-    mysqli_stmt_execute($stmt);
-    $deactivated_pre = mysqli_stmt_affected_rows($stmt);
-    mysqli_stmt_close($stmt);
-    
-    // 4. Deactivate during-lab sessions after 1 MINUTE of their Start_time
-    $deactivate_duringlab = "UPDATE sessions 
-                            SET is_active = 0 
-                            WHERE lab_type = 'during-lab' 
-                            AND is_active = 1
-                            AND Start_time <= DATE_SUB(?, INTERVAL 1 MINUTE)";
-    $stmt = mysqli_prepare($conn, $deactivate_duringlab);
-    mysqli_stmt_bind_param($stmt, "s", $current_time);
-    mysqli_stmt_execute($stmt);
-    $deactivated_during = mysqli_stmt_affected_rows($stmt);
-    mysqli_stmt_close($stmt);
-    
-    error_log("DEBUG: Deactivated pre=$deactivated_pre, during=$deactivated_during");
 }
 
 // Call the function to update status before doing anything
@@ -79,96 +34,82 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
     $class_type = $_POST['class_type'];
 
     $current_time = date('Y-m-d H:i:s');
-    error_log("DEBUG: Creating session at $current_time");
 
     if ($class_type === 'lab') {
         // ============= CREATE 3 LAB SESSIONS =============
-        // Using MINUTES instead of HOURS for testing
+        // ALL sessions start at the SAME TIME
         $lab_types = [
-            'pre-lab' => 0,      // Starts immediately
-            'during-lab' => 1,   // Starts after 1 MINUTE
-            'post-lab' => 2      // Starts after 2 MINUTES
+            'pre-lab',      // Pre-lab session
+            'during-lab',   // During-lab session  
+            'post-lab'      // Post-lab session
         ];
 
         $created_sessions = 0;
         $first_session_id = null;
+        
+        // All sessions start NOW (same time)
+        $scheduled_start = $current_time;
 
-        foreach ($lab_types as $lab_type => $minute_delay) {
-            // Using minutes instead of hours
-            $scheduled_start = date('Y-m-d H:i:s', strtotime("+{$minute_delay} minutes"));
-            error_log("DEBUG: Creating $lab_type with start time: $scheduled_start");
-
+        foreach ($lab_types as $lab_type) {
             // Check if lab_type column exists
             $check_column = mysqli_query($conn, "SHOW COLUMNS FROM sessions LIKE 'lab_type'");
             $has_lab_type = mysqli_num_rows($check_column) > 0;
 
             if ($has_lab_type) {
-                // Insert with lab_type column
+                // Insert with lab_type column - session_id will auto-increment
                 $query = "INSERT INTO sessions 
                          (faculty_id, subject_id, section_targeted, class_type, lab_type, created_at, Start_time, is_active) 
-                         VALUES (?, ?, ?, ?, ?, ?, ?, ?)";
+                         VALUES (?, ?, ?, ?, ?, ?, ?, 1)"; // ALL are active immediately
 
                 $stmt = mysqli_prepare($conn, $query);
 
-                // Only pre-lab is active immediately
-                $is_active = ($lab_type == 'pre-lab') ? 1 : 0;
-                mysqli_stmt_bind_param($stmt, "issssssi", 
+                mysqli_stmt_bind_param($stmt, "issssss", 
                     $faculty_id, 
                     $subject_id, 
                     $section_targeted, 
                     $class_type, 
                     $lab_type, 
                     $current_time,
-                    $scheduled_start,
-                    $is_active
+                    $scheduled_start
                 );
             } else {
-                // Insert without lab_type column
+                // Insert without lab_type column - session_id will auto-increment
                 $query = "INSERT INTO sessions 
                          (faculty_id, subject_id, section_targeted, class_type, created_at, Start_time, is_active) 
-                         VALUES (?, ?, ?, ?, ?, ?, ?)";
+                         VALUES (?, ?, ?, ?, ?, ?, 1)"; // ALL are active immediately
 
                 $stmt = mysqli_prepare($conn, $query);
 
-                // Only pre-lab is active immediately
-                $is_active = ($lab_type == 'pre-lab') ? 1 : 0;
-                mysqli_stmt_bind_param($stmt, "isssssi", 
+                mysqli_stmt_bind_param($stmt, "isssss", 
                     $faculty_id, 
                     $subject_id, 
                     $section_targeted, 
                     $class_type, 
                     $current_time,
-                    $scheduled_start,
-                    $is_active
+                    $scheduled_start
                 );
             }
 
             if (mysqli_stmt_execute($stmt)) {
                 $created_sessions++;
                 $last_insert_id = mysqli_insert_id($conn);
-                error_log("DEBUG: Created $lab_type session ID: $last_insert_id");
 
-                // Store first session ID for redirection
+                // Store first session ID for redirection (pre-lab)
                 if ($lab_type == 'pre-lab') {
                     $first_session_id = $last_insert_id;
                     $_SESSION['current_session'] = $last_insert_id;
                 }
-            } else {
-                error_log("ERROR inserting $lab_type: " . mysqli_error($conn));
             }
             mysqli_stmt_close($stmt);
         }
 
         if ($created_sessions == 3) {
             $_SESSION['success_message'] = "✅ 3 Lab Sessions Created Successfully!<br>
-                                           • Pre-Lab: Active now (1 minute)<br>
-                                           • During-Lab: Auto-activates in 1 minute<br>
-                                           • Post-Lab: Auto-activates in 2 minutes<br>
-                                           <small><i>Refresh page to see auto-activation</i></small>";
+                                           • Pre-Lab: Active Now<br>
+                                           • During-Lab: Active Now<br>
+                                           • Post-Lab: Active Now<br>
+                                           <small><i>All sessions activated simultaneously</i></small>";
 
-            // IMPORTANT: Force update session status immediately after creation
-            updateSessionStatus($conn);
-            
             // Redirect to pre-lab session scanner
             header('Location: faculty_scan.php?session_id=' . urlencode($first_session_id));
             exit;
@@ -180,12 +121,15 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
 
     } else {
         // ============= CREATE NORMAL SINGLE SESSION =============
+        // For normal class (lecture), it starts immediately
         $scheduled_start = $current_time;
         
+        // Check if lab_type column exists
         $check_column = mysqli_query($conn, "SHOW COLUMNS FROM sessions LIKE 'lab_type'");
         $has_lab_type = mysqli_num_rows($check_column) > 0;
 
         if ($has_lab_type) {
+            // session_id is auto-increment, so don't include it in the insert
             $query = "INSERT INTO sessions 
                      (faculty_id, subject_id, section_targeted, class_type, lab_type, created_at, Start_time, is_active) 
                      VALUES (?, ?, ?, ?, ?, ?, ?, 1)";
@@ -204,6 +148,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                 $scheduled_start
             );
         } else {
+            // session_id is auto-increment, so don't include it in the insert
             $query = "INSERT INTO sessions 
                      (faculty_id, subject_id, section_targeted, class_type, created_at, Start_time, is_active) 
                      VALUES (?, ?, ?, ?, ?, ?, 1)";
@@ -226,18 +171,19 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             $_SESSION['success_message'] = "Attendance session started successfully!";
             mysqli_stmt_close($stmt);
 
+            // Redirect with session ID
             header('Location: faculty_scan.php?session_id=' . urlencode($last_insert_id));
             exit;
         } else {
             $error = mysqli_error($conn);
             $_SESSION['error_message'] = "Error starting session: " . $error;
-            error_log("Error creating normal session: " . $error);
             mysqli_stmt_close($stmt);
             header('Location: faculty_dashboard.php');
             exit;
         }
     }
 } else {
+    // If not POST request, redirect to dashboard
     header('Location: faculty_dashboard.php');
     exit;
 }
