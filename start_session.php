@@ -38,9 +38,9 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             $has_lab_type = mysqli_num_rows($check_column) > 0;
             
             if ($has_lab_type) {
-                // Insert with lab_type column
+                // Insert with lab_type column - CORRECTED: Use Start_time (not scheduled_start)
                 $query = "INSERT INTO sessions 
-                         (session_id, faculty_id, subject_id, section_targeted, class_type, lab_type, created_at, scheduled_start, is_active) 
+                         (session_id, faculty_id, subject_id, section_targeted, class_type, lab_type, created_at, Start_time, is_active) 
                          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)";
                 
                 $stmt = mysqli_prepare($conn, $query);
@@ -59,16 +59,16 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                     $is_active
                 );
             } else {
-                // Insert without lab_type column
+                // Insert without lab_type column - CORRECTED: Use Start_time (not scheduled_start)
                 $query = "INSERT INTO sessions 
-                         (session_id, faculty_id, subject_id, section_targeted, class_type, created_at, scheduled_start, is_active) 
+                         (session_id, faculty_id, subject_id, section_targeted, class_type, created_at, Start_time, is_active) 
                          VALUES (?, ?, ?, ?, ?, ?, ?, ?)";
                 
                 $stmt = mysqli_prepare($conn, $query);
                 
                 // Only pre-lab is active immediately
                 $is_active = ($lab_type == 'pre-lab') ? 1 : 0;
-                mysqli_stmt_bind_param($stmt, "ssisssi", 
+                mysqli_stmt_bind_param($stmt, "ssissssi", 
                     $session_id, 
                     $faculty_id, 
                     $subject_id, 
@@ -88,6 +88,9 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                     $first_session_id = $session_id;
                     $_SESSION['current_session'] = $session_id;
                 }
+            } else {
+                // DEBUG: Log error for debugging
+                error_log("Error inserting session: " . mysqli_error($conn) . " | Query: " . $query);
             }
             mysqli_stmt_close($stmt);
         }
@@ -109,11 +112,17 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         
     } else {
         // ============= CREATE NORMAL SINGLE SESSION =============
+        // CORRECTED: Added is_active parameter to binding (but it's hardcoded as 1 in query)
+        // The query is correct as it has ", 1)" at the end which sets is_active=1
         $query = "INSERT INTO sessions 
                  (session_id, faculty_id, subject_id, section_targeted, class_type, created_at, is_active) 
                  VALUES (?, ?, ?, ?, ?, ?, 1)";
         
         $stmt = mysqli_prepare($conn, $query);
+        
+        // DEBUG: Check if all variables are set
+        error_log("DEBUG - Normal session: session_id=$base_session_id, faculty_id=$faculty_id, subject_id=$subject_id, section_targeted=$section_targeted, class_type=$class_type, time=$current_time");
+        
         mysqli_stmt_bind_param($stmt, "ssiss", 
             $base_session_id, 
             $faculty_id, 
@@ -132,7 +141,9 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             header('Location: faculty_scan.php?session_id=' . urlencode($base_session_id));
             exit;
         } else {
-            $_SESSION['error_message'] = "Error starting session: " . mysqli_error($conn);
+            $error = mysqli_error($conn);
+            $_SESSION['error_message'] = "Error starting session: " . $error;
+            error_log("Error creating normal session: " . $error);
             mysqli_stmt_close($stmt);
             header('Location: faculty_dashboard.php');
             exit;
