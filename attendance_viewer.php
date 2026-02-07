@@ -52,36 +52,67 @@ if (ob_get_length() > 0 && !headers_sent()) {
     ob_start();
 }
 
-// ==================== Fetch student details including section ====================
+// ==================== Initialize variables to avoid undefined errors ====================
 $student = null;
 $student_section = '';
-$student_query = "SELECT * FROM students WHERE student_id = ?";
-$student_stmt = mysqli_prepare($conn, $student_query);
-if ($student_stmt) {
-    mysqli_stmt_bind_param($student_stmt, "s", $student_id);
-    mysqli_stmt_execute($student_stmt);
-    $student_result = mysqli_stmt_get_result($student_stmt);
-    $student = mysqli_fetch_assoc($student_result);
-    mysqli_stmt_close($student_stmt);
-    
-    if ($student) {
-        $student_section = $student['section'] ?? '';
+$total_classes_for_student = 0;
+$attended_count = 0;
+$attendance_percentage = 0;
+$subject_details_result = null;
+$records_result = null;
+$monthly_data = [];
+$month_labels = [];
+$month_total_counts = [];
+$month_attended_counts = [];
+$subject_data = [];
+$subject_labels = [];
+$subject_attendance_percentages = [];
+$filtered_result = null;
+$total_filtered = 0;
+$months_result = null;
+$subjects_result = null;
+$missed_result = null;
+$missed_count = 0;
+
+// ==================== Fetch student details including section ====================
+if ($conn) {
+    $student_query = "SELECT * FROM students WHERE student_id = ?";
+    $student_stmt = mysqli_prepare($conn, $student_query);
+    if ($student_stmt) {
+        mysqli_stmt_bind_param($student_stmt, "s", $student_id);
+        mysqli_stmt_execute($student_stmt);
+        $student_result = mysqli_stmt_get_result($student_stmt);
+        $student = mysqli_fetch_assoc($student_result);
+        mysqli_stmt_close($student_stmt);
+        
+        if ($student) {
+            $student_section = $student['section'] ?? '';
+        } else {
+            // Student not found
+            if (ob_get_length() > 0) {
+                ob_end_clean();
+            }
+            header('Location: login.php');
+            exit;
+        }
     } else {
-        // Student not found
+        // Database error
+        error_log("Database error in student query");
         if (ob_get_length() > 0) {
             ob_end_clean();
         }
-        header('Location: login.php');
-        exit;
+        die("Database connection error. Please try again later.");
     }
 } else {
-    // Database error
-    die("Database error");
+    error_log("No database connection");
+    if (ob_get_length() > 0) {
+        ob_end_clean();
+    }
+    die("Database connection error. Please try again later.");
 }
 
 // ==================== FIXED: Get TOTAL classes for student ====================
-$total_classes_for_student = 0;
-if ($student_section) {
+if ($student_section && $conn) {
     $total_sessions_query = "SELECT COUNT(*) as total_sessions 
                              FROM sessions 
                              WHERE section_targeted = ? 
@@ -91,37 +122,43 @@ if ($student_section) {
         mysqli_stmt_bind_param($total_sessions_stmt, "s", $student_section);
         mysqli_stmt_execute($total_sessions_stmt);
         $total_sessions_result = mysqli_stmt_get_result($total_sessions_stmt);
-        $total_sessions_data = mysqli_fetch_assoc($total_sessions_result);
-        $total_classes_for_student = $total_sessions_data['total_sessions'] ?: 0;
+        if ($total_sessions_result) {
+            $total_sessions_data = mysqli_fetch_assoc($total_sessions_result);
+            $total_classes_for_student = $total_sessions_data['total_sessions'] ? (int)$total_sessions_data['total_sessions'] : 0;
+        }
         mysqli_stmt_close($total_sessions_stmt);
     }
 }
 
-// ==================== FIXED: Get attended classes (only for sessions that have already happened) ====================
-$attended_count = 0;
-$attended_query = "SELECT COUNT(DISTINCT ar.session_id) as attended_count 
-                   FROM attendance_records ar
-                   JOIN sessions s ON ar.session_id = s.session_id
-                   WHERE ar.student_id = ?
-                   AND s.start_time <= NOW()";
-$attended_stmt = mysqli_prepare($conn, $attended_query);
-if ($attended_stmt) {
-    mysqli_stmt_bind_param($attended_stmt, "s", $student_id);
-    mysqli_stmt_execute($attended_stmt);
-    $attended_result = mysqli_stmt_get_result($attended_stmt);
-    $attended_data = mysqli_fetch_assoc($attended_result);
-    $attended_count = $attended_data['attended_count'] ?: 0;
-    mysqli_stmt_close($attended_stmt);
+// ==================== FIXED: Get attended classes ====================
+if ($conn) {
+    $attended_query = "SELECT COUNT(DISTINCT ar.session_id) as attended_count 
+                       FROM attendance_records ar
+                       JOIN sessions s ON ar.session_id = s.session_id
+                       WHERE ar.student_id = ?
+                       AND s.start_time <= NOW()";
+    $attended_stmt = mysqli_prepare($conn, $attended_query);
+    if ($attended_stmt) {
+        mysqli_stmt_bind_param($attended_stmt, "s", $student_id);
+        mysqli_stmt_execute($attended_stmt);
+        $attended_result = mysqli_stmt_get_result($attended_stmt);
+        if ($attended_result) {
+            $attended_data = mysqli_fetch_assoc($attended_result);
+            $attended_count = $attended_data['attended_count'] ? (int)$attended_data['attended_count'] : 0;
+        }
+        mysqli_stmt_close($attended_stmt);
+    }
 }
 
 // ==================== Calculate attendance percentage ====================
-$attendance_percentage = ($total_classes_for_student > 0) 
-    ? round(($attended_count / $total_classes_for_student) * 100, 2) 
-    : 0;
+if ($total_classes_for_student > 0) {
+    $attendance_percentage = round(($attended_count / $total_classes_for_student) * 100, 2);
+} else {
+    $attendance_percentage = 0;
+}
 
 // ==================== Query for detailed subject-wise statistics ====================
-$subject_details_result = null;
-if ($student_section) {
+if ($student_section && $conn) {
     $subject_details_query = "SELECT 
         s.subject_id,
         s.subject_code,
@@ -149,41 +186,38 @@ if ($student_section) {
 }
 
 // ==================== Get attendance records with session details ====================
-$records_result = null;
-$records_query = "SELECT 
-    ar.record_id,
-    ar.session_id,
-    ar.student_id,
-    ar.marked_at,
-    s.subject_code,
-    s.subject_name,
-    ses.start_time,
-    f.faculty_name,
-    ses.section_targeted,
-    ses.class_type,
-    'Present' as status
-FROM attendance_records ar
-LEFT JOIN sessions ses ON ar.session_id = ses.session_id AND ses.start_time <= NOW()
-LEFT JOIN subjects s ON ses.subject_id = s.subject_id
-LEFT JOIN faculty f ON ses.faculty_id = f.faculty_id
-WHERE ar.student_id = ?
-ORDER BY ar.marked_at DESC";
+if ($conn) {
+    $records_query = "SELECT 
+        ar.record_id,
+        ar.session_id,
+        ar.student_id,
+        ar.marked_at,
+        s.subject_code,
+        s.subject_name,
+        ses.start_time,
+        f.faculty_name,
+        ses.section_targeted,
+        ses.class_type,
+        'Present' as status
+    FROM attendance_records ar
+    JOIN sessions ses ON ar.session_id = ses.session_id
+    JOIN subjects s ON ses.subject_id = s.subject_id
+    LEFT JOIN faculty f ON ses.faculty_id = f.faculty_id
+    WHERE ar.student_id = ?
+    AND ses.start_time <= NOW()
+    ORDER BY ar.marked_at DESC";
 
-$records_stmt = mysqli_prepare($conn, $records_query);
-if ($records_stmt) {
-    mysqli_stmt_bind_param($records_stmt, "s", $student_id);
-    mysqli_stmt_execute($records_stmt);
-    $records_result = mysqli_stmt_get_result($records_stmt);
-    mysqli_stmt_close($records_stmt);
+    $records_stmt = mysqli_prepare($conn, $records_query);
+    if ($records_stmt) {
+        mysqli_stmt_bind_param($records_stmt, "s", $student_id);
+        mysqli_stmt_execute($records_stmt);
+        $records_result = mysqli_stmt_get_result($records_stmt);
+        mysqli_stmt_close($records_stmt);
+    }
 }
 
 // ==================== Query for monthly attendance trend ====================
-$monthly_data = [];
-$month_labels = [];
-$month_total_counts = [];
-$month_attended_counts = [];
-
-if ($student_section) {
+if ($student_section && $conn) {
     $monthly_query = "SELECT 
         DATE_FORMAT(ses.start_time, '%Y-%m') as month,
         COUNT(DISTINCT ses.session_id) as total_sessions,
@@ -202,27 +236,25 @@ if ($student_section) {
         mysqli_stmt_execute($monthly_stmt);
         $monthly_result = mysqli_stmt_get_result($monthly_stmt);
         
-        while ($row = mysqli_fetch_assoc($monthly_result)) {
-            $monthly_data[] = $row;
-            $month_labels[] = date('M', strtotime($row['month'] . '-01'));
-            $month_total_counts[] = $row['total_sessions'];
-            $month_attended_counts[] = $row['attended_sessions'];
+        if ($monthly_result) {
+            while ($row = mysqli_fetch_assoc($monthly_result)) {
+                $monthly_data[] = $row;
+                $month_labels[] = date('M', strtotime($row['month'] . '-01'));
+                $month_total_counts[] = (int)$row['total_sessions'];
+                $month_attended_counts[] = (int)$row['attended_sessions'];
+            }
+            
+            // Reverse for chronological order
+            $month_labels = array_reverse($month_labels);
+            $month_total_counts = array_reverse($month_total_counts);
+            $month_attended_counts = array_reverse($month_attended_counts);
         }
         mysqli_stmt_close($monthly_stmt);
-        
-        // Reverse for chronological order
-        $month_labels = array_reverse($month_labels);
-        $month_total_counts = array_reverse($month_total_counts);
-        $month_attended_counts = array_reverse($month_attended_counts);
     }
 }
 
 // ==================== Query for subject-wise attendance for pie chart ====================
-$subject_data = [];
-$subject_labels = [];
-$subject_attendance_percentages = [];
-
-if ($student_section) {
+if ($student_section && $conn) {
     $subject_query = "SELECT 
         s.subject_name,
         COUNT(DISTINCT CASE WHEN ar.record_id IS NOT NULL THEN ses.session_id END) as attended_count,
@@ -242,67 +274,71 @@ if ($student_section) {
         mysqli_stmt_execute($subject_stmt);
         $subject_result = mysqli_stmt_get_result($subject_stmt);
         
-        while ($row = mysqli_fetch_assoc($subject_result)) {
-            $subject_data[] = $row;
-            $subject_labels[] = $row['subject_name'];
-            $subject_attendance_percentages[] = $row['attendance_percentage'];
+        if ($subject_result) {
+            while ($row = mysqli_fetch_assoc($subject_result)) {
+                $subject_data[] = $row;
+                $subject_labels[] = $row['subject_name'];
+                $subject_attendance_percentages[] = (float)$row['attendance_percentage'];
+            }
         }
         mysqli_stmt_close($subject_stmt);
     }
 }
 
 // ==================== Handle filters ====================
-$where_clause = "WHERE ar.student_id = ?";
-$filter_params = [$student_id];
-$filter_types = "s";
+if ($conn) {
+    $where_clause = "WHERE ar.student_id = ?";
+    $filter_params = [$student_id];
+    $filter_types = "s";
 
-if (isset($_GET['subject']) && !empty($_GET['subject'])) {
-    $subject_filter = mysqli_real_escape_string($conn, $_GET['subject']);
-    $where_clause .= " AND s.subject_name LIKE ?";
-    $filter_params[] = "%$subject_filter%";
-    $filter_types .= "s";
-}
+    if (isset($_GET['subject']) && !empty($_GET['subject'])) {
+        $subject_filter = trim($_GET['subject']);
+        $where_clause .= " AND s.subject_name LIKE ?";
+        $filter_params[] = "%$subject_filter%";
+        $filter_types .= "s";
+    }
 
-if (isset($_GET['month']) && !empty($_GET['month'])) {
-    $month_filter = mysqli_real_escape_string($conn, $_GET['month']);
-    $where_clause .= " AND DATE_FORMAT(ar.marked_at, '%Y-%m') = ?";
-    $filter_params[] = $month_filter;
-    $filter_types .= "s";
-}
+    if (isset($_GET['month']) && !empty($_GET['month'])) {
+        $month_filter = trim($_GET['month']);
+        $where_clause .= " AND DATE_FORMAT(ar.marked_at, '%Y-%m') = ?";
+        $filter_params[] = $month_filter;
+        $filter_types .= "s";
+    }
 
-$filtered_result = null;
-$total_filtered = 0;
-$filtered_query = "SELECT 
-    ar.record_id,
-    ar.session_id,
-    ar.student_id,
-    ar.marked_at,
-    s.subject_code,
-    s.subject_name,
-    ses.start_time,
-    f.faculty_name,
-    ses.section_targeted,
-    ses.class_type,
-    'Present' as status
-FROM attendance_records ar
-LEFT JOIN sessions ses ON ar.session_id = ses.session_id AND ses.start_time <= NOW()
-LEFT JOIN subjects s ON ses.subject_id = s.subject_id
-LEFT JOIN faculty f ON ses.faculty_id = f.faculty_id
-$where_clause
-ORDER BY ar.marked_at DESC";
+    $filtered_query = "SELECT 
+        ar.record_id,
+        ar.session_id,
+        ar.student_id,
+        ar.marked_at,
+        s.subject_code,
+        s.subject_name,
+        ses.start_time,
+        f.faculty_name,
+        ses.section_targeted,
+        ses.class_type,
+        'Present' as status
+    FROM attendance_records ar
+    JOIN sessions ses ON ar.session_id = ses.session_id
+    JOIN subjects s ON ses.subject_id = s.subject_id
+    LEFT JOIN faculty f ON ses.faculty_id = f.faculty_id
+    $where_clause
+    AND ses.start_time <= NOW()
+    ORDER BY ar.marked_at DESC";
 
-$filtered_stmt = mysqli_prepare($conn, $filtered_query);
-if ($filtered_stmt) {
-    mysqli_stmt_bind_param($filtered_stmt, $filter_types, ...$filter_params);
-    mysqli_stmt_execute($filtered_stmt);
-    $filtered_result = mysqli_stmt_get_result($filtered_stmt);
-    $total_filtered = mysqli_num_rows($filtered_result);
-    mysqli_stmt_close($filtered_stmt);
+    $filtered_stmt = mysqli_prepare($conn, $filtered_query);
+    if ($filtered_stmt) {
+        mysqli_stmt_bind_param($filtered_stmt, $filter_types, ...$filter_params);
+        mysqli_stmt_execute($filtered_stmt);
+        $filtered_result = mysqli_stmt_get_result($filtered_stmt);
+        if ($filtered_result) {
+            $total_filtered = mysqli_num_rows($filtered_result);
+        }
+        mysqli_stmt_close($filtered_stmt);
+    }
 }
 
 // ==================== For dropdowns - Get unique months and subjects ====================
-$months_result = null;
-if ($student_section) {
+if ($student_section && $conn) {
     $months_query = "SELECT DISTINCT DATE_FORMAT(ses.start_time, '%Y-%m') as month_value, 
                     DATE_FORMAT(ses.start_time, '%M %Y') as month_display
                     FROM sessions ses
@@ -318,8 +354,7 @@ if ($student_section) {
     }
 }
 
-$subjects_result = null;
-if ($student_section) {
+if ($student_section && $conn) {
     $subjects_query = "SELECT DISTINCT s.subject_id, s.subject_name
                       FROM subjects s
                       WHERE s.subject_id IN (SELECT DISTINCT subject_id FROM sessions WHERE section_targeted = ?)
@@ -334,9 +369,7 @@ if ($student_section) {
 }
 
 // ==================== Also get missed sessions ====================
-$missed_result = null;
-$missed_count = 0;
-if ($student_section) {
+if ($student_section && $conn) {
     $missed_sessions_query = "SELECT 
         ses.session_id,
         ses.start_time,
@@ -346,7 +379,7 @@ if ($student_section) {
         ses.section_targeted,
         ses.class_type
     FROM sessions ses
-    LEFT JOIN subjects s ON ses.subject_id = s.subject_id
+    JOIN subjects s ON ses.subject_id = s.subject_id
     LEFT JOIN faculty f ON ses.faculty_id = f.faculty_id
     WHERE ses.section_targeted = ? 
     AND ses.start_time <= NOW()
@@ -360,7 +393,9 @@ if ($student_section) {
         mysqli_stmt_bind_param($missed_stmt, "ss", $student_section, $student_id);
         mysqli_stmt_execute($missed_stmt);
         $missed_result = mysqli_stmt_get_result($missed_stmt);
-        $missed_count = mysqli_num_rows($missed_result);
+        if ($missed_result) {
+            $missed_count = mysqli_num_rows($missed_result);
+        }
         mysqli_stmt_close($missed_stmt);
     }
 }
@@ -505,7 +540,7 @@ include 'header.php';
                         <div class="d-flex justify-content-between align-items-start">
                             <div>
                                 <h6 class="card-subtitle mb-2 text-muted">Attendance Rate</h6>
-                                <h2 class="card-title"><?php echo $attendance_percentage; ?>%</h2>
+                                <h2 class="card-title"><?php echo number_format($attendance_percentage, 2); ?>%</h2>
                             </div>
                             <i class="fas fa-percentage fa-2x opacity-75"></i>
                         </div>
@@ -515,7 +550,7 @@ include 'header.php';
                                     echo $attendance_percentage >= 75 ? 'bg-success' : 
                                          ($attendance_percentage >= 50 ? 'bg-warning' : 'bg-danger'); 
                                 ?>" 
-                                style="width: <?php echo $attendance_percentage; ?>%">
+                                style="width: <?php echo min($attendance_percentage, 100); ?>%">
                             </div>
                         </div>
                     </div>
@@ -609,7 +644,7 @@ include 'header.php';
                                     <?php endif; ?>
                                     <small class="text-muted"><?php echo htmlspecialchars($missed['subject_name']); ?></small>
                                 </td>
-                                <td><?php echo htmlspecialchars($missed['faculty_name']); ?></td>
+                                <td><?php echo htmlspecialchars($missed['faculty_name'] ?? 'N/A'); ?></td>
                                 <td>
                                     <?php if (!empty($missed['class_type'])): ?>
                                         <span class="badge bg-secondary class-type-badge"><?php echo $missed['class_type']; ?></span>
@@ -756,7 +791,7 @@ include 'header.php';
                                         <?php endif; ?>
                                         <small class="text-muted"><?php echo htmlspecialchars($record['subject_name']); ?></small>
                                     </td>
-                                    <td><?php echo htmlspecialchars($record['faculty_name']); ?></td>
+                                    <td><?php echo htmlspecialchars($record['faculty_name'] ?? 'N/A'); ?></td>
                                     <td>
                                         <?php if (!empty($record['start_time'])): ?>
                                             <strong><?php echo date('h:i A', strtotime($record['start_time'])); ?></strong><br>
@@ -778,6 +813,57 @@ include 'header.php';
                                 </tr>
                                 <?php 
                                     endwhile;
+                                } elseif (!$filtered_result && $attended_count > 0) {
+                                    // If no filtered result but we have attendance, show all records
+                                    if ($records_result) {
+                                        mysqli_data_seek($records_result, 0);
+                                        while ($record = mysqli_fetch_assoc($records_result)): 
+                                            $class_type = $record['class_type'] ?? 'Normal';
+                                            $type_badge_color = 'bg-primary';
+                                            if ($class_type == 'Lab') $type_badge_color = 'bg-danger';
+                                            if ($class_type == 'Tutorial') $type_badge_color = 'bg-warning';
+                                            if ($class_type == 'Project') $type_badge_color = 'bg-success';
+                                            
+                                            $is_late = false;
+                                            if (!empty($record['start_time']) && !empty($record['marked_at'])) {
+                                                $start_time = strtotime($record['start_time']);
+                                                $marked_time = strtotime($record['marked_at']);
+                                                if (($marked_time - $start_time) > 900) {
+                                                    $is_late = true;
+                                                }
+                                            }
+                                ?>
+                                <tr>
+                                    <td><?php echo date('d/m/Y', strtotime($record['marked_at'])); ?></td>
+                                    <td>
+                                        <?php if (!empty($record['subject_code'])): ?>
+                                            <strong><?php echo htmlspecialchars($record['subject_code']); ?></strong><br>
+                                        <?php endif; ?>
+                                        <small class="text-muted"><?php echo htmlspecialchars($record['subject_name']); ?></small>
+                                    </td>
+                                    <td><?php echo htmlspecialchars($record['faculty_name'] ?? 'N/A'); ?></td>
+                                    <td>
+                                        <?php if (!empty($record['start_time'])): ?>
+                                            <strong><?php echo date('h:i A', strtotime($record['start_time'])); ?></strong><br>
+                                        <?php endif; ?>
+                                        <?php if (!empty($record['section_targeted'])): ?>
+                                            <span class="badge bg-secondary class-type-badge">Sec: <?php echo $record['section_targeted']; ?></span>
+                                        <?php endif; ?>
+                                        <?php if (!empty($class_type)): ?>
+                                            <span class="badge <?php echo $type_badge_color; ?> class-type-badge"><?php echo $class_type; ?></span>
+                                        <?php endif; ?>
+                                    </td>
+                                    <td>
+                                        <span class="badge bg-success">Present</span>
+                                        <?php if ($is_late): ?>
+                                            <span class="badge bg-warning ms-1">Late</span>
+                                        <?php endif; ?>
+                                    </td>
+                                    <td><?php echo date('h:i A', strtotime($record['marked_at'])); ?></td>
+                                </tr>
+                                <?php 
+                                        endwhile;
+                                    }
                                 }
                                 ?>
                             </tbody>
@@ -814,8 +900,8 @@ include 'header.php';
                             $subject_count = 0;
                             while ($subject_detail = mysqli_fetch_assoc($subject_details_result)): 
                                 $subject_count++;
-                                $subject_attended = $subject_detail['classes_attended'] ?: 0;
-                                $subject_total = $subject_detail['total_sessions_for_subject'] ?: 0;
+                                $subject_attended = $subject_detail['classes_attended'] ? (int)$subject_detail['classes_attended'] : 0;
+                                $subject_total = $subject_detail['total_sessions_for_subject'] ? (int)$subject_detail['total_sessions_for_subject'] : 0;
                                 $subject_percentage = $subject_total > 0 ? round(($subject_attended / $subject_total) * 100, 2) : 0;
                                 
                                 $card_class = '';
@@ -865,11 +951,11 @@ include 'header.php';
                                                         echo $subject_percentage >= 75 ? 'bg-success' : 
                                                              ($subject_percentage >= 50 ? 'bg-warning' : 'bg-danger'); 
                                                     ?>">
-                                                        <?php echo $subject_percentage; ?>%
+                                                        <?php echo number_format($subject_percentage, 2); ?>%
                                                     </span>
                                                 </p>
                                                 <p class="mb-1">
-                                                    <small><?php echo htmlspecialchars($subject_detail['faculties']); ?></small>
+                                                    <small><?php echo htmlspecialchars($subject_detail['faculties'] ?? 'N/A'); ?></small>
                                                 </p>
                                                 <p class="mb-0">
                                                     <?php 
@@ -891,7 +977,7 @@ include 'header.php';
                                         <div class="mt-3">
                                             <div class="d-flex justify-content-between mb-1">
                                                 <small>Attendance Progress</small>
-                                                <small><strong><?php echo $subject_percentage; ?>%</strong></small>
+                                                <small><strong><?php echo number_format($subject_percentage, 2); ?>%</strong></small>
                                             </div>
                                             <div class="progress attendance-progress">
                                                 <div class="progress-bar <?php 
