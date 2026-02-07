@@ -155,20 +155,20 @@ if ($attendance_result) {
         $class_type = $record['class_type'] ?? '';
         $lab_type = $record['lab_type'] ?? '';
         
-        // Check if it's a lab session
+        // Check if it's a lab session - EVERY LAB SESSION = 1 ATTENDANCE MARK
         $is_lab = false;
         if ($class_type === 'lab') {
             $is_lab = true;
         }
         
         if ($is_lab) {
-            $lab_attendance++; // Count each lab session as 1
+            $lab_attendance++; // EACH LAB SESSION = 1 (NOT 1/3)
         } else {
-            $theory_attendance++; // Count each theory session as 1
+            $theory_attendance++; // EACH THEORY SESSION = 1
         }
     }
     
-    // Total attendance = theory sessions + lab sessions (both count as 1)
+    // Total attendance = theory sessions + lab sessions (BOTH COUNT AS 1)
     $total_attendance = $theory_attendance + $lab_attendance;
     
     // Reset pointer for later use
@@ -182,7 +182,7 @@ $theory_sessions_happened = 0;
 $lab_sessions_happened = 0;
 
 if ($conn) {
-    // Get all past sessions
+    // Get all past sessions - COUNT EACH SESSION AS 1
     $happened_query = "SELECT s.*, sub.subject_name, sub.subject_code 
                       FROM sessions s 
                       JOIN subjects sub ON s.subject_id = sub.subject_id 
@@ -202,13 +202,13 @@ if ($conn) {
                 strpos($subject_code, 'lab_') !== false ||
                 $session['class_type'] === 'lab') {
                 $is_lab = true;
-                $lab_sessions_happened++; // Count each lab session as 1
+                $lab_sessions_happened++; // EACH LAB SESSION = 1
             } else {
-                $theory_sessions_happened++; // Count each theory session as 1
+                $theory_sessions_happened++; // EACH THEORY SESSION = 1
             }
         }
         
-        // Total sessions happened = theory sessions + lab sessions (both count as 1)
+        // Total sessions happened = theory sessions + lab sessions (BOTH COUNT AS 1)
         $sessions_happened = $theory_sessions_happened + $lab_sessions_happened;
     }
 }
@@ -219,6 +219,10 @@ $attendance_percentage = 0;
 if ($sessions_happened > 0) {
     $attendance_percentage = round(($total_attendance / $sessions_happened) * 100, 1);
 }
+
+// ==================== FIX THE IMPOSSIBLE PERCENTAGE ISSUE ====================
+// If percentage is > 100%, there's a data mismatch. Cap it at 100% for display
+$display_percentage = min(100, $attendance_percentage);
 
 // Determine attendance status based on attendance percentage
 $attendance_status = "No Data";
@@ -642,6 +646,14 @@ $default_avatar = 'default.png';
         color: #6c757d;
         margin-top: 3px;
     }
+    
+    .attendance-ratio {
+        font-size: 1.5rem;
+        font-weight: bold;
+        text-align: center;
+        margin: 10px 0;
+        color: #28a745;
+    }
 </style>
 
 <div class="row">
@@ -749,7 +761,7 @@ $default_avatar = 'default.png';
             <div class="col-md-4 mb-3">
                 <div class="stat-card stat-card-2">
                     <div class="stat-number">
-                        <i class="fas fa-percentage"></i> <?php echo $attendance_percentage; ?>%
+                        <i class="fas fa-percentage"></i> <?php echo $display_percentage; ?>%
                     </div>
                     <h6 class="mb-0">Attendance %</h6>
                     <div class="small mb-2">(<?php echo $total_attendance; ?>/<?php echo $sessions_happened; ?> sessions)</div>
@@ -765,6 +777,134 @@ $default_avatar = 'default.png';
                     </div>
                     <h6 class="mb-0">Current Time</h6>
                     <small><?php echo date('l, F j, Y'); ?></small>
+                </div>
+            </div>
+        </div>
+
+        <!-- Attendance Progress Section -->
+        <div class="card shadow-lg border-0 mb-4">
+            <div class="card-header bg-info text-white">
+                <h5 class="mb-0"><i class="fas fa-chart-line me-2"></i>Attendance Details</h5>
+            </div>
+            <div class="card-body">
+                <!-- Attendance Ratio Display -->
+                <div class="attendance-ratio">
+                    <?php echo $total_attendance; ?>/<?php echo $sessions_happened; ?> sessions
+                </div>
+                
+                <div class="row">
+                    <div class="col-md-6">
+                        <h6>Current Status: <span class="badge bg-<?php echo $attendance_class; ?>"><?php echo $attendance_status; ?></span></h6>
+                        <div class="progress attendance-progress">
+                            <div class="progress-bar bg-<?php echo $attendance_class; ?>" 
+                                 role="progressbar" 
+                                 style="width: <?php echo min($display_percentage, 100); ?>%"
+                                 aria-valuenow="<?php echo $display_percentage; ?>" 
+                                 aria-valuemin="0" 
+                                 aria-valuemax="100">
+                            </div>
+                        </div>
+                        <div class="progress-percentage text-center">
+                            <?php echo $display_percentage; ?>% (<?php echo $total_attendance; ?>/<?php echo $sessions_happened; ?> sessions)
+                            <?php if ($attendance_percentage > 100): ?>
+                                <br><small class="text-warning">Note: Actual attendance exceeds available sessions</small>
+                            <?php endif; ?>
+                        </div>
+                        
+                        <!-- Subjects Breakdown -->
+                        <div class="subjects-breakdown mt-3">
+                            <h6><i class="fas fa-book me-2"></i>Subject Breakdown:</h6>
+                            <div class="subject-item">
+                                <span>Theory Sessions <span class="subject-badge">Subject</span></span>
+                                <span>
+                                    <strong><?php echo $theory_attendance; ?></strong> attended /
+                                    <strong><?php echo $theory_sessions_happened; ?></strong> total
+                                </span>
+                            </div>
+                            <div class="subject-item">
+                                <span>Lab Sessions <span class="lab-badge">Lab</span></span>
+                                <span>
+                                    <strong><?php echo $lab_attendance; ?></strong> attended /
+                                    <strong><?php echo $lab_sessions_happened; ?></strong> total
+                                </span>
+                            </div>
+                            <div class="subject-item">
+                                <span>Total Sessions</span>
+                                <span><strong><?php echo $total_attendance; ?></strong>/<strong><?php echo $sessions_happened; ?></strong> sessions</span>
+                            </div>
+                            
+                            <!-- Display individual subjects from database -->
+                            <?php if (!empty($subjects_data)): ?>
+                            <div class="session-info mt-2">
+                                <strong>Individual Subjects:</strong>
+                                <?php foreach ($subjects_data as $subject): ?>
+                                <div style="font-size: 0.8rem; margin-top: 3px;">
+                                    <?php echo htmlspecialchars($subject['code']) . ' - ' . htmlspecialchars($subject['name']); ?>
+                                    (<?php echo $subject['target']; ?> sessions)
+                                    <?php if ($subject['is_lab']): ?>
+                                        <span class="lab-badge" style="font-size: 0.7rem;">Lab</span>
+                                    <?php else: ?>
+                                        <span class="subject-badge" style="font-size: 0.7rem;">Subject</span>
+                                    <?php endif; ?>
+                                </div>
+                                <?php endforeach; ?>
+                            </div>
+                            <?php endif; ?>
+                            
+                            <div class="session-info mt-2">
+                                <i class="fas fa-info-circle me-1"></i>
+                                Note: Each lab session counts as 1 attendance mark.
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <h6><i class="fas fa-chart-pie me-2"></i>Attendance Distribution</h6>
+                        <div class="subjects-breakdown">
+                            <div class="subject-item">
+                                <span>75% Requirement</span>
+                                <span><strong><?php echo $sessions_for_75_percent; ?></strong> sessions</span>
+                            </div>
+                            <div class="subject-item">
+                                <span>Your Attendance</span>
+                                <span><strong><?php echo $total_attendance; ?></strong> sessions</span>
+                            </div>
+                            <div class="subject-item">
+                                <span>Remaining to 75%</span>
+                                <span><strong><?php echo $remaining_for_75_percent; ?></strong> sessions</span>
+                            </div>
+                            <div class="subject-item">
+                                <span>Weekly Goal</span>
+                                <span><strong><?php echo ceil($remaining_for_75_percent / 8); ?></strong> weeks at 100%</span>
+                            </div>
+                        </div>
+                        
+                        <!-- Detailed Attendance Info -->
+                        <div class="subjects-breakdown mt-3">
+                            <h6><i class="fas fa-calculator me-2"></i>Attendance Calculation:</h6>
+                            <div class="subject-item">
+                                <span>To Attend (Theory)</span>
+                                <span><?php echo $theory_sessions; ?> sessions</span>
+                            </div>
+                            <div class="subject-item">
+                                <span>To Attend (Labs)</span>
+                                <span><?php echo $lab_sessions; ?> sessions</span>
+                            </div>
+                            <div class="subject-item">
+                                <span>Already Attended</span>
+                                <span><?php echo $total_attendance; ?> sessions</span>
+                            </div>
+                            <div class="subject-item">
+                                <span>Remaining All</span>
+                                <span><?php echo max(0, $total_possible_sessions - $total_attendance); ?> sessions</span>
+                            </div>
+                        </div>
+                        
+                        <!-- Real-time Update Notice -->
+                        <div class="alert alert-info mt-3">
+                            <i class="fas fa-sync-alt me-2"></i>
+                            <strong>Auto-updating:</strong> Your attendance updates automatically as you attend classes.
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -837,121 +977,6 @@ $default_avatar = 'default.png';
                     <strong>Congratulations!</strong> You've already achieved 75% attendance requirement!
                 </div>
                 <?php endif; ?>
-            </div>
-        </div>
-
-        <!-- Attendance Progress Section -->
-        <div class="card shadow-lg border-0 mb-4">
-            <div class="card-header bg-info text-white">
-                <h5 class="mb-0"><i class="fas fa-chart-line me-2"></i>Attendance Details</h5>
-            </div>
-            <div class="card-body">
-                <div class="row">
-                    <div class="col-md-6">
-                        <h6>Current Status: <span class="badge bg-<?php echo $attendance_class; ?>"><?php echo $attendance_status; ?></span></h6>
-                        <div class="progress attendance-progress">
-                            <div class="progress-bar bg-<?php echo $attendance_class; ?>" 
-                                 role="progressbar" 
-                                 style="width: <?php echo min($attendance_percentage, 100); ?>%"
-                                 aria-valuenow="<?php echo $attendance_percentage; ?>" 
-                                 aria-valuemin="0" 
-                                 aria-valuemax="100">
-                            </div>
-                        </div>
-                        <div class="progress-percentage text-center">
-                            <?php echo $attendance_percentage; ?>% (<?php echo $total_attendance; ?>/<?php echo $sessions_happened; ?> sessions)
-                        </div>
-                        
-                        <!-- Subjects Breakdown -->
-                        <div class="subjects-breakdown mt-3">
-                            <h6><i class="fas fa-book me-2"></i>Subject Breakdown:</h6>
-                            <div class="subject-item">
-                                <span>Theory Sessions <span class="subject-badge">Subject</span></span>
-                                <span>
-                                    <strong><?php echo $theory_attendance; ?></strong> attended /
-                                    <strong><?php echo $theory_sessions_happened; ?></strong> total
-                                </span>
-                            </div>
-                            <div class="subject-item">
-                                <span>Lab Sessions <span class="lab-badge">Lab</span></span>
-                                <span>
-                                    <strong><?php echo $lab_attendance; ?></strong> attended /
-                                    <strong><?php echo $lab_sessions_happened; ?></strong> total
-                                </span>
-                            </div>
-                            <div class="subject-item">
-                                <span>Total Sessions</span>
-                                <span><strong><?php echo $total_attendance; ?></strong>/<strong><?php echo $sessions_happened; ?></strong> sessions</span>
-                            </div>
-                            
-                            <!-- Display individual subjects from database -->
-                            <?php if (!empty($subjects_data)): ?>
-                            <div class="session-info mt-2">
-                                <strong>Individual Subjects:</strong>
-                                <?php foreach ($subjects_data as $subject): ?>
-                                <div style="font-size: 0.8rem; margin-top: 3px;">
-                                    <?php echo htmlspecialchars($subject['code']) . ' - ' . htmlspecialchars($subject['name']); ?>
-                                    (<?php echo $subject['target']; ?> sessions)
-                                    <?php if ($subject['is_lab']): ?>
-                                        <span class="lab-badge" style="font-size: 0.7rem;">Lab</span>
-                                    <?php else: ?>
-                                        <span class="subject-badge" style="font-size: 0.7rem;">Subject</span>
-                                    <?php endif; ?>
-                                </div>
-                                <?php endforeach; ?>
-                            </div>
-                            <?php endif; ?>
-                        </div>
-                    </div>
-                    <div class="col-md-6">
-                        <h6><i class="fas fa-chart-pie me-2"></i>Attendance Distribution</h6>
-                        <div class="subjects-breakdown">
-                            <div class="subject-item">
-                                <span>75% Requirement</span>
-                                <span><strong><?php echo $sessions_for_75_percent; ?></strong> sessions</span>
-                            </div>
-                            <div class="subject-item">
-                                <span>Your Attendance</span>
-                                <span><strong><?php echo $total_attendance; ?></strong> sessions</span>
-                            </div>
-                            <div class="subject-item">
-                                <span>Remaining to 75%</span>
-                                <span><strong><?php echo $remaining_for_75_percent; ?></strong> sessions</span>
-                            </div>
-                            <div class="subject-item">
-                                <span>Weekly Goal</span>
-                                <span><strong><?php echo ceil($remaining_for_75_percent / 8); ?></strong> weeks at 100%</span>
-                            </div>
-                        </div>
-                        
-                        <!-- Detailed Attendance Info -->
-                        <div class="subjects-breakdown mt-3">
-                            <h6><i class="fas fa-calculator me-2"></i>Attendance Calculation:</h6>
-                            <div class="subject-item">
-                                <span>To Attend (Theory)</span>
-                                <span><?php echo $theory_sessions; ?> sessions</span>
-                            </div>
-                            <div class="subject-item">
-                                <span>To Attend (Labs)</span>
-                                <span><?php echo $lab_sessions; ?> sessions</span>
-                            </div>
-                            <div class="subject-item">
-                                <span>Already Attended</span>
-                                <span><?php echo $total_attendance; ?> sessions</span>
-                            </div>
-                            <div class="subject-item">
-                                <span>Remaining All</span>
-                                <span><?php echo max(0, $total_possible_sessions - $total_attendance); ?> sessions</span>
-                            </div>
-                        </div>
-                        
-                        <!-- Real-time Update Notice -->
-                        <div class="alert alert-info mt-3">
-                            <i class="fas fa-sync-alt me-2"></i>
-                            <strong>Auto-updating:</strong> Your 75% goal decreases automatically as you attend classes.
-                        </div>
-                    </div>
-                </div>
             </div>
         </div>
 
@@ -1058,6 +1083,14 @@ $default_avatar = 'default.png';
                                             <span class="badge bg-success">
                                                 <i class="fas fa-check-circle me-1"></i> Present
                                             </span>
+                                            <br>
+                                            <small class="text-muted session-info">
+                                                <?php if ($is_lab): ?>
+                                                    Lab session (counts as 1)
+                                                <?php else: ?>
+                                                    Theory session (counts as 1)
+                                                <?php endif; ?>
+                                            </small>
                                         </td>
                                     </tr>
                                     <?php endwhile; ?>
