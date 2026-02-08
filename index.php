@@ -1009,7 +1009,7 @@ include 'header.php';
     </section>
 
     <!-- Footer -->
-    <section class="cta-section py-5 text-white">
+    <section style= " color: black;"class="cta-section py-5 text-white">
         <div class="container">
             <div class="row justify-content-center text-center">
                 <div class="col-lg-8">
