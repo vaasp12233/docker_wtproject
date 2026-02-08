@@ -300,56 +300,49 @@ $default_role = isset($_GET['role']) && in_array($_GET['role'], ['faculty', 'stu
             opacity: 0.7;
         }
         
-        /* Role Selector */
+        /* Role Selector - IMPROVED */
         .role-selector {
             display: flex;
-            gap: 15px;
+            gap: 10px;
             margin-bottom: 35px;
+            background: var(--gray-100);
+            padding: 8px;
+            border-radius: 12px;
         }
         
-        .role-card {
+        .role-tab {
             flex: 1;
-            padding: 20px;
-            border: 2px solid var(--light-blue);
-            border-radius: 15px;
-            background: white;
+            padding: 15px;
+            border: none;
+            background: transparent;
+            border-radius: 8px;
             cursor: pointer;
             transition: all 0.3s ease;
             text-align: center;
+            font-weight: 600;
+            color: var(--gray-800);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 8px;
         }
         
-        .role-card:hover {
-            transform: translateY(-5px);
-            border-color: var(--accent-blue);
-            box-shadow: 0 10px 25px rgba(59, 130, 246, 0.15);
+        .role-tab:hover {
+            background: rgba(59, 130, 246, 0.1);
         }
         
-        .role-card.active {
-            border-color: var(--primary-blue);
-            background: linear-gradient(135deg, rgba(26, 86, 219, 0.1), rgba(59, 130, 246, 0.05));
-            transform: translateY(-5px);
-            box-shadow: 0 10px 25px rgba(59, 130, 246, 0.2);
+        .role-tab.active {
+            background: white;
+            color: var(--primary-blue);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
         }
         
         .role-icon {
-            width: 60px;
-            height: 60px;
-            border-radius: 15px;
+            width: 24px;
+            height: 24px;
             display: flex;
             align-items: center;
             justify-content: center;
-            margin: 0 auto 15px;
-            font-size: 24px;
-        }
-        
-        .faculty-icon {
-            background: linear-gradient(135deg, var(--primary-blue), var(--secondary-blue));
-            color: white;
-        }
-        
-        .student-icon {
-            background: linear-gradient(135deg, var(--success-green), #34d399);
-            color: white;
         }
         
         /* Form Styles */
@@ -496,6 +489,7 @@ $default_role = isset($_GET['role']) && in_array($_GET['role'], ['faculty', 'stu
         @media (max-width: 576px) {
             .role-selector {
                 flex-direction: column;
+                gap: 5px;
             }
             
             .info-panel, .login-panel {
@@ -547,11 +541,6 @@ $default_role = isset($_GET['role']) && in_array($_GET['role'], ['faculty', 'stu
             0% { transform: rotate(0deg); }
             100% { transform: rotate(360deg); }
         }
-        
-        /* Floating Animation */
-        .float-animation {
-            animation: float 6s ease-in-out infinite;
-        }
     </style>
 </head>
 <body>
@@ -600,7 +589,7 @@ $default_role = isset($_GET['role']) && in_array($_GET['role'], ['faculty', 'stu
             <div class="mt-auto">
                 <div class="d-flex align-items-center justify-content-center">
                     <div class="text-center">
-                        <div class="h4 mb-2">1500+ Active Users</div>
+                        <div class="h4 mb-2">360+ Active Users</div>
                         <small class="opacity-75">Trusted by CSE Department</small>
                     </div>
                 </div>
@@ -629,25 +618,23 @@ $default_role = isset($_GET['role']) && in_array($_GET['role'], ['faculty', 'stu
             <?php endif; ?>
             
             <form method="POST" action="" id="loginForm">
-                <!-- Role Selection -->
+                <!-- Role Selection - IMPROVED -->
                 <div class="role-selector">
-                    <div class="role-card <?php echo $default_role == 'faculty' ? 'active' : ''; ?>" 
-                         onclick="selectRole('faculty')" id="facultyCard">
-                        <div class="role-icon faculty-icon">
+                    <button type="button" class="role-tab <?php echo $default_role == 'faculty' ? 'active' : ''; ?>" 
+                         onclick="selectRole('faculty')" id="facultyTab">
+                        <div class="role-icon">
                             <i class="fas fa-chalkboard-teacher"></i>
                         </div>
-                        <h5 class="fw-bold mb-2">Faculty</h5>
-                        <small class="text-muted">QR Scanner & Analytics</small>
-                    </div>
+                        <span>Faculty</span>
+                    </button>
                     
-                    <div class="role-card <?php echo $default_role == 'student' ? 'active' : ''; ?>" 
-                         onclick="selectRole('student')" id="studentCard">
-                        <div class="role-icon student-icon">
+                    <button type="button" class="role-tab <?php echo $default_role == 'student' ? 'active' : ''; ?>" 
+                         onclick="selectRole('student')" id="studentTab">
+                        <div class="role-icon">
                             <i class="fas fa-user-graduate"></i>
                         </div>
-                        <h5 class="fw-bold mb-2">Student</h5>
-                        <small class="text-muted">Attendance & Timetable</small>
-                    </div>
+                        <span>Student</span>
+                    </button>
                 </div>
                 
                 <input type="hidden" name="role" id="selectedRole" value="<?php echo $default_role; ?>">
@@ -709,44 +696,6 @@ $default_role = isset($_GET['role']) && in_array($_GET['role'], ['faculty', 'stu
         </div>
     </div>
     
-    <!-- Google Translate Button -->
-    <div class="translate-btn-container" style="position: fixed; bottom: 20px; right: 20px;">
-        <button onclick="showLanguageMenu()" class="btn-translate" 
-                style="width: 60px; height: 60px; background: linear-gradient(135deg, var(--primary-blue), var(--secondary-blue));
-                       border: none; border-radius: 50%; color: white; font-size: 24px;
-                       cursor: pointer; box-shadow: 0 8px 25px rgba(0,0,0,0.2);
-                       transition: all 0.3s ease; display: flex; align-items: center; justify-content: center;">
-            <i class="fas fa-language"></i>
-        </button>
-        
-        <div class="language-menu" id="languageMenu" 
-             style="display: none; position: absolute; bottom: 70px; right: 0;
-                    background: white; border-radius: 15px; box-shadow: 0 10px 40px rgba(0,0,0,0.15);
-                    padding: 15px; min-width: 200px; z-index: 1000;">
-            <div class="language-option" onclick="translateTo('en')" 
-                 style="padding: 12px; border-radius: 8px; cursor: pointer;
-                        display: flex; align-items: center; gap: 10px;
-                        transition: background 0.3s;">
-                <span class="flag">🇺🇸</span>
-                <span>English</span>
-            </div>
-            <div class="language-option" onclick="translateTo('hi')" 
-                 style="padding: 12px; border-radius: 8px; cursor: pointer;
-                        display: flex; align-items: center; gap: 10px;
-                        transition: background 0.3s;">
-                <span class="flag">🇮🇳</span>
-                <span>हिन्दी (Hindi)</span>
-            </div>
-            <div class="language-option" onclick="translateTo('te')" 
-                 style="padding: 12px; border-radius: 8px; cursor: pointer;
-                        display: flex; align-items: center; gap: 10px;
-                        transition: background 0.3s;">
-                <span class="flag">🇮🇳</span>
-                <span>తెలుగు (Telugu)</span>
-            </div>
-        </div>
-    </div>
-    
     <script>
         // Initialize with default role
         const defaultRole = '<?php echo $default_role; ?>';
@@ -778,37 +727,30 @@ $default_role = isset($_GET['role']) && in_array($_GET['role'], ['faculty', 'stu
             }
         }
         
-        // Role selection
+        // Role selection - SIMPLIFIED
         function selectRole(role) {
-            const facultyCard = document.getElementById('facultyCard');
-            const studentCard = document.getElementById('studentCard');
+            const facultyTab = document.getElementById('facultyTab');
+            const studentTab = document.getElementById('studentTab');
             const selectedRole = document.getElementById('selectedRole');
             const passwordHint = document.getElementById('passwordHint');
             
-            // Update cards
-            facultyCard.classList.remove('active');
-            studentCard.classList.remove('active');
+            // Update tabs
+            facultyTab.classList.remove('active');
+            studentTab.classList.remove('active');
             
             if (role === 'faculty') {
-                facultyCard.classList.add('active');
+                facultyTab.classList.add('active');
                 selectedRole.value = 'faculty';
                 if (passwordHint) {
                     passwordHint.innerHTML = 'Enter your custom password or default (part before @ in email)';
                 }
             } else {
-                studentCard.classList.add('active');
+                studentTab.classList.add('active');
                 selectedRole.value = 'student';
                 if (passwordHint) {
                     passwordHint.innerHTML = 'Password is the part before @ in your email';
                 }
             }
-            
-            // Add animation
-            const activeCard = role === 'faculty' ? facultyCard : studentCard;
-            activeCard.style.animation = 'none';
-            setTimeout(() => {
-                activeCard.style.animation = 'float 0.5s ease';
-            }, 10);
         }
         
         // Password toggle
@@ -862,147 +804,7 @@ $default_role = isset($_GET['role']) && in_array($_GET['role'], ['faculty', 'stu
             
             // Initialize role based on URL
             selectRole(defaultRole);
-            
-            // Add hover effects to role cards
-            const roleCards = document.querySelectorAll('.role-card');
-            roleCards.forEach(card => {
-                card.addEventListener('mouseenter', function() {
-                    if (!this.classList.contains('active')) {
-                        this.style.transform = 'translateY(-3px)';
-                        this.style.boxShadow = '0 8px 20px rgba(59, 130, 246, 0.1)';
-                    }
-                });
-                
-                card.addEventListener('mouseleave', function() {
-                    if (!this.classList.contains('active')) {
-                        this.style.transform = 'translateY(0)';
-                        this.style.boxShadow = 'none';
-                    }
-                });
-            });
         });
-        
-        // Language translation
-        function showLanguageMenu() {
-            const menu = document.getElementById('languageMenu');
-            const btn = document.querySelector('.btn-translate');
-            
-            if (menu.style.display === 'none' || menu.style.display === '') {
-                menu.style.display = 'block';
-                btn.style.transform = 'scale(1.1) rotate(360deg)';
-            } else {
-                menu.style.display = 'none';
-                btn.style.transform = 'scale(1) rotate(0deg)';
-            }
-            
-            // Close menu when clicking outside
-            setTimeout(() => {
-                document.addEventListener('click', function closeMenu(e) {
-                    if (!menu.contains(e.target) && !btn.contains(e.target)) {
-                        menu.style.display = 'none';
-                        btn.style.transform = 'scale(1) rotate(0deg)';
-                        document.removeEventListener('click', closeMenu);
-                    }
-                });
-            }, 10);
-        }
-        
-        function translateTo(lang) {
-            // Simple translation simulation
-            const elements = document.querySelectorAll('[data-translate]');
-            
-            if (lang === 'en') {
-                // English - reset to original
-                location.reload();
-            } else if (lang === 'hi') {
-                // Hindi translation for key elements
-                const translations = {
-                    'Welcome Back!': 'वापसी पर स्वागत है!',
-                    'Sign in to access your dashboard': 'अपने डैशबोर्ड तक पहुंचने के लिए साइन इन करें',
-                    'Email Address': 'ईमेल पता',
-                    'Password': 'पासवर्ड',
-                    'Faculty': 'फैकल्टी',
-                    'Student': 'छात्र',
-                    'Sign In to Dashboard': 'डैशबोर्ड में साइन इन करें',
-                    'Back to Home Page': 'होम पेज पर वापस जाएं'
-                };
-                
-                updateTextContent(translations);
-                showToast('Translated to Hindi');
-            } else if (lang === 'te') {
-                // Telugu translation
-                const translations = {
-                    'Welcome Back!': 'పునఃస్వాగతం!',
-                    'Sign in to access your dashboard': 'మీ డాష్బోర్డ్‌కు ప్రవేశించడానికి సైన్ ఇన్ చేయండి',
-                    'Email Address': 'ఇమెయిల్ చిరునామా',
-                    'Password': 'పాస్‌వర్డ్',
-                    'Faculty': 'ఫ్యాకల్టీ',
-                    'Student': 'విద్యార్థి',
-                    'Sign In to Dashboard': 'డాష్బోర్డ్‌కు సైన్ ఇన్ చేయండి',
-                    'Back to Home Page': 'హోమ్ పేజీకి తిరిగి వెళ్ళండి'
-                };
-                
-                updateTextContent(translations);
-                showToast('Translated to Telugu');
-            }
-            
-            // Close language menu
-            document.getElementById('languageMenu').style.display = 'none';
-            document.querySelector('.btn-translate').style.transform = 'scale(1) rotate(0deg)';
-        }
-        
-        function updateTextContent(translations) {
-            for (const [key, value] of Object.entries(translations)) {
-                const elements = document.querySelectorAll(`:not(script):not(style)`);
-                elements.forEach(el => {
-                    if (el.textContent.includes(key)) {
-                        el.textContent = el.textContent.replace(key, value);
-                    }
-                });
-            }
-        }
-        
-        function showToast(message) {
-            const toast = document.createElement('div');
-            toast.textContent = message;
-            toast.style.position = 'fixed';
-            toast.style.bottom = '100px';
-            toast.style.right = '20px';
-            toast.style.background = 'var(--primary-blue)';
-            toast.style.color = 'white';
-            toast.style.padding = '12px 24px';
-            toast.style.borderRadius = '10px';
-            toast.style.boxShadow = '0 5px 15px rgba(0,0,0,0.2)';
-            toast.style.zIndex = '10000';
-            toast.style.animation = 'slideUp 0.3s ease';
-            
-            document.body.appendChild(toast);
-            
-            setTimeout(() => {
-                toast.style.animation = 'slideDown 0.3s ease';
-                setTimeout(() => {
-                    document.body.removeChild(toast);
-                }, 300);
-            }, 3000);
-        }
-        
-        // Add slideDown animation
-        const style = document.createElement('style');
-        style.textContent = `
-            @keyframes slideDown {
-                from { transform: translateY(0); opacity: 1; }
-                to { transform: translateY(20px); opacity: 0; }
-            }
-            
-            .language-option:hover {
-                background: #f3f4f6;
-            }
-            
-            .btn-translate:hover {
-                transform: scale(1.1) !important;
-            }
-        `;
-        document.head.appendChild(style);
     </script>
 </body>
 </html>
