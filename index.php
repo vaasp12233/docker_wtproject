@@ -471,6 +471,47 @@ include 'header.php';
             transform: translateY(-2px);
             box-shadow: 0 5px 15px rgba(0, 0, 0, 0.2);
         }
+        
+        /* Footer Section - CHANGED TO BLACK */
+        .cta-section {
+            background: #000000; /* Changed to black */
+            padding: 100px 0;
+            color: white;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .cta-section::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: 
+                radial-gradient(circle at 10% 20%, rgba(255,255,255,0.1) 0%, transparent 40%),
+                radial-gradient(circle at 90% 80%, rgba(255,255,255,0.1) 0%, transparent 40%);
+        }
+        
+        .cta-content {
+            position: relative;
+            z-index: 2;
+            text-align: center;
+        }
+        
+        .cta-title {
+            font-size: clamp(2rem, 4vw, 3.5rem);
+            font-weight: 800;
+            margin-bottom: 20px;
+        }
+        
+        .cta-buttons {
+            display: flex;
+            gap: 20px;
+            justify-content: center;
+            flex-wrap: wrap;
+            margin-top: 40px;
+        }
     </style>
 </head>
 <body>
@@ -1008,8 +1049,8 @@ include 'header.php';
         </div>
     </section>
 
-    <!-- Footer -->
-    <section style= " color: black;"class="cta-section py-5 text-white">
+    <!-- Footer - NOW BLACK -->
+    <section class="cta-section py-5 text-white">
         <div class="container">
             <div class="row justify-content-center text-center">
                 <div class="col-lg-8">
