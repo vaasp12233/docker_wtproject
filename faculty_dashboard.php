@@ -76,7 +76,7 @@ if ($faculty_stmt) {
     mysqli_stmt_bind_param($faculty_stmt, "s", $faculty_id);
     mysqli_stmt_execute($faculty_stmt);
     $result = mysqli_stmt_get_result($faculty_stmt);
-    
+
     if (mysqli_num_rows($result) == 0) {
         session_destroy();
         if (ob_get_length() > 0) {
@@ -85,10 +85,10 @@ if ($faculty_stmt) {
         header('Location: login.php?error=faculty_not_found');
         exit;
     }
-    
+
     $faculty = mysqli_fetch_assoc($result);
     mysqli_stmt_close($faculty_stmt);
-    
+
     // Process allowed_subjects
     $allowed_subjects_str = $faculty['allowed_subjects'] ?? '';
     if (!empty($allowed_subjects_str)) {
@@ -110,16 +110,16 @@ if ($has_allowed_subjects) {
     // Create placeholders for IN clause based on allowed_subjects_array count
     $placeholders = str_repeat('?,', count($allowed_subjects_array) - 1) . '?';
     $subjects_query = "SELECT * FROM subjects WHERE subject_code IN ($placeholders) ORDER BY subject_name";
-    
+
     $subjects_stmt = mysqli_prepare($conn, $subjects_query);
-    
+
     // Bind parameters dynamically
     $types = str_repeat('s', count($allowed_subjects_array));
     mysqli_stmt_bind_param($subjects_stmt, $types, ...$allowed_subjects_array);
-    
+
     mysqli_stmt_execute($subjects_stmt);
     $subjects_result = mysqli_stmt_get_result($subjects_stmt);
-    
+
     // Store results in array for later use
     $subjects_data = [];
     while ($subject = mysqli_fetch_assoc($subjects_result)) {
@@ -165,9 +165,9 @@ if ($has_allowed_subjects) {
                              WHERE s.faculty_id = ? 
                              AND sub.subject_code IN ($placeholders)
                              ORDER BY s.$time_column DESC LIMIT 5";
-    
+
     $recent_sessions_stmt = mysqli_prepare($conn, $recent_sessions_query);
-    
+
     if ($recent_sessions_stmt) {
         // Bind faculty_id + all subject codes
         $params = array_merge([$faculty_id], $allowed_subjects_array);
@@ -175,7 +175,7 @@ if ($has_allowed_subjects) {
         mysqli_stmt_bind_param($recent_sessions_stmt, $types, ...$params);
         mysqli_stmt_execute($recent_sessions_stmt);
         $recent_sessions_temp = mysqli_stmt_get_result($recent_sessions_stmt);
-        
+
         // Store in array
         while ($session = mysqli_fetch_assoc($recent_sessions_temp)) {
             $recent_sessions_data[] = $session;
@@ -197,7 +197,7 @@ if ($has_allowed_subjects) {
                             JOIN subjects sub ON s.subject_id = sub.subject_id 
                             WHERE s.faculty_id = ? 
                             AND sub.subject_code IN ($placeholders)";
-    
+
     $sessions_count_stmt = mysqli_prepare($conn, $sessions_count_query);
     if ($sessions_count_stmt) {
         $params = array_merge([$faculty_id], $allowed_subjects_array);
@@ -209,7 +209,7 @@ if ($has_allowed_subjects) {
         $total_sessions = $sessions_count_data['count'] ?? 0;
         mysqli_stmt_close($sessions_count_stmt);
     }
-    
+
     // Total attendance records
     $attendance_count_query = "SELECT COUNT(*) as total 
                               FROM attendance_records ar 
@@ -217,7 +217,7 @@ if ($has_allowed_subjects) {
                               JOIN subjects sub ON s.subject_id = sub.subject_id 
                               WHERE s.faculty_id = ? 
                               AND sub.subject_code IN ($placeholders)";
-    
+
     $attendance_count_stmt = mysqli_prepare($conn, $attendance_count_query);
     if ($attendance_count_stmt) {
         $params = array_merge([$faculty_id], $allowed_subjects_array);
@@ -229,7 +229,7 @@ if ($has_allowed_subjects) {
         $total_attendance = $attendance_count_data['total'] ?? 0;
         mysqli_stmt_close($attendance_count_stmt);
     }
-    
+
     // Active sessions count
     $active_sessions_query = "SELECT COUNT(*) as count 
                              FROM sessions s 
@@ -237,7 +237,7 @@ if ($has_allowed_subjects) {
                              WHERE s.faculty_id = ? 
                              AND s.is_active = 1 
                              AND sub.subject_code IN ($placeholders)";
-    
+
     $active_sessions_stmt = mysqli_prepare($conn, $active_sessions_query);
     if ($active_sessions_stmt) {
         $params = array_merge([$faculty_id], $allowed_subjects_array);
@@ -298,7 +298,7 @@ include 'header.php';
             </div>
         </div>
     </div>
-    
+
     <!-- Success/Error Messages -->
     <?php if (!empty($success_message)): ?>
     <div class="row mb-3">
@@ -311,7 +311,7 @@ include 'header.php';
         </div>
     </div>
     <?php endif; ?>
-    
+
     <?php if (!empty($error_message)): ?>
     <div class="row mb-3">
         <div class="col-12">
@@ -323,7 +323,7 @@ include 'header.php';
         </div>
     </div>
     <?php endif; ?>
-    
+
     <!-- Password Warning -->
     <?php if (!$has_custom_password): ?>
     <div class="row mb-3">
@@ -337,7 +337,7 @@ include 'header.php';
         </div>
     </div>
     <?php endif; ?>
-    
+
     <!-- No Subjects Assigned Warning -->
     <?php if (!$has_allowed_subjects): ?>
     <div class="row mb-3">
@@ -351,7 +351,7 @@ include 'header.php';
         </div>
     </div>
     <?php endif; ?>
-    
+
     <!-- Feature Cards -->
     <div class="row mb-4">
         <!-- 360° Students View Card -->
@@ -395,7 +395,7 @@ include 'header.php';
                 </div>
             </a>
         </div>
-        
+
         <!-- Attendance Analytics Card -->
         <div class="col-xl-3 col-md-6 mb-4">
             <a href="attendance_viewer_faculty.php" class="text-decoration-none card-link" aria-label="Go to Attendance Analytics Dashboard">
@@ -433,7 +433,7 @@ include 'header.php';
                 </div>
             </a>
         </div>
-        
+
         <!-- Stats Cards (Only shown if has allowed subjects) -->
         <?php if ($has_allowed_subjects): ?>
             <div class="col-xl-2 col-md-4 mb-4">
@@ -447,7 +447,7 @@ include 'header.php';
                     </div>
                 </div>
             </div>
-            
+
             <div class="col-xl-2 col-md-4 mb-4">
                 <div class="card border-0 shadow h-100">
                     <div class="card-body text-center py-4">
@@ -459,7 +459,7 @@ include 'header.php';
                     </div>
                 </div>
             </div>
-            
+
             <div class="col-xl-2 col-md-4 mb-4">
                 <div class="card border-0 shadow h-100">
                     <div class="card-body text-center py-4">
@@ -518,7 +518,7 @@ include 'header.php';
                                 </select>
                                 <small class="text-muted">Choose the subject for this session</small>
                             </div>
-                            
+
                             <div class="col-md-3">
                                 <label class="form-label fw-bold">Section <span class="text-danger">*</span></label>
                                 <select class="form-select" name="section_targeted" required>
@@ -530,7 +530,7 @@ include 'header.php';
                                 </select>
                                 <small class="text-muted">Target student section</small>
                             </div>
-                            
+
                             <div class="col-md-3">
                                 <label class="form-label fw-bold">Class Type <span class="text-danger">*</span></label>
                                 <select class="form-select" name="class_type" required id="classTypeSelect">
@@ -539,21 +539,31 @@ include 'header.php';
                                 </select>
                                 <small class="text-muted">Type of class session</small>
                             </div>
-                            
-                            <!-- LAB TIMING INFORMATION (SHOWN ONLY WHEN LAB IS SELECTED) -->
-                            <div class="col-md-12" id="labInfoSection" style="display: none;">
-                                <div class="alert alert-info">
+
+                            <!-- NEW LAB TYPE SELECTION COLUMN (SHOWN ONLY WHEN LAB IS SELECTED) -->
+                            <div class="col-md-6" id="labTypeSection" style="display: none;">
+                                <label class="form-label fw-bold">Lab Type <span class="text-danger">*</span></label>
+                                <select class="form-select" name="lab_type" id="labTypeSelect">
+                                    <option value="pre-lab">Pre-Lab Session</option>
+                                    <option value="during-lab">During-Lab Session</option>
+                                    <option value="post-lab">Post-Lab Session</option>
+                                </select>
+                                <small class="text-muted">Select specific lab session type</small>
+                            </div>
+
+                            <!-- LAB INFORMATION (SHOWN ONLY WHEN LAB IS SELECTED) -->
+                            <div class="col-md-6" id="labInfoSection" style="display: none;">
+                                <div class="alert alert-info h-100 mb-0">
                                     <h6><i class="fas fa-info-circle me-2"></i> Lab Session Information</h6>
-                                    <p class="mb-2"><strong>When you select "Lab Session", three sessions will be created simultaneously:</strong></p>
-                                    <ol class="mb-0">
-                                        <li><strong>Pre-Lab Session</strong> - Starts immediately</li>
-                                        <li><strong>During-Lab Session</strong> - Starts immediately</li>
-                                        <li><strong>Post-Lab Session</strong> - Starts immediately</li>
-                                    </ol>
-                                    <p class="mt-2 mb-0"><strong>Note:</strong> All three lab sessions will be active at the same time for separate tracking.</p>
+                                    <p class="mb-0"><strong>Select which lab session you want to start:</strong></p>
+                                    <ul class="mb-0 mt-2">
+                                        <li><strong>Pre-Lab:</strong> Before experiment starts</li>
+                                        <li><strong>During-Lab:</strong> During the experiment</li>
+                                        <li><strong>Post-Lab:</strong> After experiment completion</li>
+                                    </ul>
                                 </div>
                             </div>
-                            
+
                             <div class="col-12 mt-4">
                                 <?php if ($has_custom_password): ?>
                                 <button type="submit" class="btn btn-primary btn-lg w-100" id="submitBtn">
@@ -576,7 +586,7 @@ include 'header.php';
                 </div>
             </div>
         </div>
-        
+
         <!-- Recent Sessions (Only shown if has allowed subjects) -->
         <div class="col-lg-4">
             <div class="card shadow border-0 h-100">
@@ -592,13 +602,13 @@ include 'header.php';
                                 $status_class = $session['is_active'] ? 'border-start border-success' : 'border-start border-secondary';
                                 $status_text = $session['is_active'] ? 'Active' : 'Ended';
                                 $status_bg = $session['is_active'] ? 'success' : 'secondary';
-                                
+
                                 // Get attendance count for this session
                                 $att_count_query = mysqli_query($conn, 
                                     "SELECT COUNT(*) as count FROM attendance_records 
                                      WHERE session_id = '{$session['session_id']}'");
                                 $att_count = $att_count_query ? mysqli_fetch_assoc($att_count_query)['count'] : 0;
-                                
+
                                 // Safe time display
                                 $display_time = 'N/A';
                                 if ($has_created_at && !empty($session['created_at'])) {
@@ -606,14 +616,14 @@ include 'header.php';
                                 } elseif ($has_start_time && !empty($session['start_time'])) {
                                     $display_time = date('h:i A', strtotime($session['start_time']));
                                 }
-                                
+
                                 // Determine lab type badge
                                 $lab_type_badge = '';
                                 if ($has_lab_type && !empty($session['lab_type'])) {
                                     $lab_type = $session['lab_type'];
                                     $badge_color = 'secondary';
                                     $icon = 'fa-flask';
-                                    
+
                                     if ($lab_type == 'pre-lab') {
                                         $badge_color = 'info';
                                         $icon = 'fa-clock';
@@ -630,7 +640,7 @@ include 'header.php';
                                         $badge_color = 'info';
                                         $icon = 'fa-chalkboard';
                                     }
-                                    
+
                                     $lab_type_badge = '<span class="badge bg-' . $badge_color . ' me-2">' .
                                         '<i class="fas ' . $icon . ' me-1"></i>' . ucfirst($lab_type) .
                                         '</span>';
@@ -689,7 +699,7 @@ include 'header.php';
                             <p class="text-muted">Start your first attendance session</p>
                         </div>
                     <?php endif; ?>
-                    
+
                     <?php if (!empty($recent_sessions_data)): ?>
                         <div class="text-center mt-3">
                             <a href="view_all_sessions.php" class="btn btn-outline-info btn-sm">
@@ -756,32 +766,70 @@ setInterval(updateTime, 60000);
 document.addEventListener('DOMContentLoaded', function() {
     const sessionForm = document.getElementById('sessionForm');
     const classTypeSelect = document.getElementById('classTypeSelect');
+    const labTypeSection = document.getElementById('labTypeSection');
     const labInfoSection = document.getElementById('labInfoSection');
+    const labTypeSelect = document.getElementById('labTypeSelect');
     const submitBtn = document.getElementById('submitBtn');
-    
-    // Function to toggle lab info visibility
-    function toggleLabInfo() {
-        if (!classTypeSelect || !labInfoSection || !submitBtn) return;
-        
+
+    // Function to toggle lab sections visibility
+    function toggleLabSections() {
+        if (!classTypeSelect || !labTypeSection || !labInfoSection || !labTypeSelect || !submitBtn) return;
+
         const selectedClassType = classTypeSelect.value;
-        
+
         if (selectedClassType === 'lab') {
+            labTypeSection.style.display = 'block';
             labInfoSection.style.display = 'block';
-            submitBtn.innerHTML = '<i class="fas fa-flask me-2"></i> Create 3 Lab Sessions';
+            // Make lab_type field required when lab is selected
+            labTypeSelect.required = true;
+            
+            // Update button text based on selected lab type
+            updateButtonText();
         } else {
+            labTypeSection.style.display = 'none';
             labInfoSection.style.display = 'none';
+            labTypeSelect.required = false;
             submitBtn.innerHTML = '<i class="fas fa-play me-2"></i> Start Attendance Session';
         }
     }
-    
+
+    // Function to update button text based on selected lab type
+    function updateButtonText() {
+        if (classTypeSelect.value === 'lab' && labTypeSelect) {
+            const selectedLabType = labTypeSelect.value;
+            let buttonText = '';
+            
+            switch(selectedLabType) {
+                case 'pre-lab':
+                    buttonText = '<i class="fas fa-clock me-2"></i> Start Pre-Lab Session';
+                    break;
+                case 'during-lab':
+                    buttonText = '<i class="fas fa-flask me-2"></i> Start During-Lab Session';
+                    break;
+                case 'post-lab':
+                    buttonText = '<i class="fas fa-clipboard-check me-2"></i> Start Post-Lab Session';
+                    break;
+                default:
+                    buttonText = '<i class="fas fa-play me-2"></i> Start Lab Session';
+            }
+            
+            submitBtn.innerHTML = buttonText;
+        }
+    }
+
     // Initial toggle
-    toggleLabInfo();
-    
+    toggleLabSections();
+
     // Add event listener for class type change
     if (classTypeSelect) {
-        classTypeSelect.addEventListener('change', toggleLabInfo);
+        classTypeSelect.addEventListener('change', toggleLabSections);
     }
-    
+
+    // Add event listener for lab type change
+    if (labTypeSelect) {
+        labTypeSelect.addEventListener('change', updateButtonText);
+    }
+
     if (sessionForm) {
         sessionForm.addEventListener('submit', function(e) {
             <?php if (!$has_custom_password): ?>
@@ -790,11 +838,28 @@ document.addEventListener('DOMContentLoaded', function() {
             window.location.href = 'change_password.php';
             return false;
             <?php endif; ?>
-            
+
             // Add confirmation for lab sessions
             const selectedClassType = classTypeSelect.value;
             if (selectedClassType === 'lab') {
-                const confirmed = confirm('⚠️ Lab Session Alert!\n\nThree lab sessions will be created simultaneously:\n1. Pre-Lab - Starts now\n2. During-Lab - Starts now\n3. Post-Lab - Starts now\n\nAll three sessions will be active for separate tracking.\n\nContinue?');
+                const selectedLabType = labTypeSelect ? labTypeSelect.value : '';
+                let message = '';
+                
+                switch(selectedLabType) {
+                    case 'pre-lab':
+                        message = 'Start Pre-Lab Session?\n\nThis will begin attendance tracking for the pre-lab phase.';
+                        break;
+                    case 'during-lab':
+                        message = 'Start During-Lab Session?\n\nThis will begin attendance tracking during the experiment.';
+                        break;
+                    case 'post-lab':
+                        message = 'Start Post-Lab Session?\n\nThis will begin attendance tracking for the post-lab phase.';
+                        break;
+                    default:
+                        message = 'Start Lab Session?\n\nThis will begin attendance tracking for the lab session.';
+                }
+                
+                const confirmed = confirm('⚠️ ' + message + '\n\nContinue?');
                 if (!confirmed) {
                     e.preventDefault();
                     return false;
@@ -802,7 +867,7 @@ document.addEventListener('DOMContentLoaded', function() {
             }
         });
     }
-    
+
     // Prevent back button from going back to login if logged in
     window.addEventListener('pageshow', function(event) {
         if (event.persisted) {
