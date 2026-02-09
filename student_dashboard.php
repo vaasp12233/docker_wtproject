@@ -75,6 +75,9 @@ if ($conn) {
 
     // Get student's attendance - USING PREPARED STATEMENTS
     if ($student) {
+        // Get student's section
+        $student_section = $student['section'] ?? '';
+        
         // FIRST: Get total attendance count (ALL records, not limited)
         $total_attendance_query = "SELECT COUNT(*) as total_count 
                                   FROM attendance_records ar 
@@ -107,43 +110,91 @@ if ($conn) {
             mysqli_stmt_close($stmt2);
         }
         
-        // ==================== GET SESSIONS FROM SUBJECTS TABLE ====================
-        // Query to get all subjects and their target_sessions
-        $subjects_query = "SELECT subject_name, subject_code, target_sessions FROM subjects";
-        $result = mysqli_query($conn, $subjects_query);
-        
-        if ($result && mysqli_num_rows($result) > 0) {
-            while ($subject = mysqli_fetch_assoc($result)) {
-                $subject_name = strtolower($subject['subject_name']);
-                $subject_code = strtolower($subject['subject_code']);
-                $target_sessions = intval($subject['target_sessions']);
+        // ==================== GET SESSIONS FROM SUBJECTS TABLE - FILTERED BY SECTION ====================
+        // Query to get all subjects and their target_sessions FOR THE STUDENT'S SECTION
+        if (!empty($student_section)) {
+            $subjects_query = "SELECT subject_name, subject_code, target_sessions FROM subjects WHERE section = ?";
+            $stmt_subjects = mysqli_prepare($conn, $subjects_query);
+            if ($stmt_subjects) {
+                mysqli_stmt_bind_param($stmt_subjects, "s", $student_section);
+                mysqli_stmt_execute($stmt_subjects);
+                $result = mysqli_stmt_get_result($stmt_subjects);
                 
-                // Check if it's a lab (based on common patterns)
-                $is_lab = false;
-                if (strpos($subject_name, 'lab') !== false || 
-                    strpos($subject_name, 'practical') !== false ||
-                    strpos($subject_code, '_lab') !== false ||
-                    strpos($subject_code, 'lab_') !== false) {
-                    $is_lab = true;
-                    $lab_sessions += $target_sessions;
-                } else {
-                    $theory_sessions += $target_sessions;
+                if ($result && mysqli_num_rows($result) > 0) {
+                    while ($subject = mysqli_fetch_assoc($result)) {
+                        $subject_name = strtolower($subject['subject_name']);
+                        $subject_code = strtolower($subject['subject_code']);
+                        $target_sessions = intval($subject['target_sessions']);
+                        
+                        // Check if it's a lab (based on common patterns)
+                        $is_lab = false;
+                        if (strpos($subject_name, 'lab') !== false || 
+                            strpos($subject_name, 'practical') !== false ||
+                            strpos($subject_code, '_lab') !== false ||
+                            strpos($subject_code, 'lab_') !== false) {
+                            $is_lab = true;
+                            $lab_sessions += $target_sessions;
+                        } else {
+                            $theory_sessions += $target_sessions;
+                        }
+                        
+                        // Store subject data for display
+                        $subjects_data[] = [
+                            'name' => $subject['subject_name'],
+                            'code' => $subject['subject_code'],
+                            'target' => $target_sessions,
+                            'is_lab' => $is_lab
+                        ];
+                        
+                        $total_possible_sessions += $target_sessions;
+                    }
+                    
+                    // Free result
+                    mysqli_free_result($result);
+                }
+                mysqli_stmt_close($stmt_subjects);
+            }
+        } else {
+            // If section is empty, use all subjects (fallback)
+            $subjects_query = "SELECT subject_name, subject_code, target_sessions FROM subjects";
+            $result = mysqli_query($conn, $subjects_query);
+            
+            if ($result && mysqli_num_rows($result) > 0) {
+                while ($subject = mysqli_fetch_assoc($result)) {
+                    $subject_name = strtolower($subject['subject_name']);
+                    $subject_code = strtolower($subject['subject_code']);
+                    $target_sessions = intval($subject['target_sessions']);
+                    
+                    // Check if it's a lab (based on common patterns)
+                    $is_lab = false;
+                    if (strpos($subject_name, 'lab') !== false || 
+                        strpos($subject_name, 'practical') !== false ||
+                        strpos($subject_code, '_lab') !== false ||
+                        strpos($subject_code, 'lab_') !== false) {
+                        $is_lab = true;
+                        $lab_sessions += $target_sessions;
+                    } else {
+                        $theory_sessions += $target_sessions;
+                    }
+                    
+                    // Store subject data for display
+                    $subjects_data[] = [
+                        'name' => $subject['subject_name'],
+                        'code' => $subject['subject_code'],
+                        'target' => $target_sessions,
+                        'is_lab' => $is_lab
+                    ];
+                    
+                    $total_possible_sessions += $target_sessions;
                 }
                 
-                // Store subject data for display
-                $subjects_data[] = [
-                    'name' => $subject['subject_name'],
-                    'code' => $subject['subject_code'],
-                    'target' => $target_sessions,
-                    'is_lab' => $is_lab
-                ];
-                
-                $total_possible_sessions += $target_sessions;
+                // Free result
+                mysqli_free_result($result);
             }
-            
-            // Free result
-            mysqli_free_result($result);
-        } else {
+        }
+        
+        // If no subjects found or section filtering didn't return results, use fallback
+        if ($total_possible_sessions == 0) {
             // Fallback to default values if no subjects found
             // Based on your information: 5 subjects + 3 labs
             $theory_sessions = 5 * 15;  // 5 subjects × 15 weeks
