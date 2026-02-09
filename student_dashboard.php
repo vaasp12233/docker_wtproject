@@ -170,10 +170,7 @@ if (empty($student['gender'])) {
 $sessions_happened = 0;
 if ($conn) {
     // Try multiple queries to get sessions happened
-    $happened_query =  "SELECT COUNT(DISTINCT session_id) as total_sessions 
-                             FROM sessions 
-                             WHERE section_targeted = (?)
-                             AND start_time <= NOW()";
+    $happened_query = "SELECT COUNT(*) as total_happened FROM sessions WHERE start_time <= NOW()";
     $happened_result = mysqli_query($conn, $happened_query);
     
     if ($happened_result && $row = mysqli_fetch_assoc($happened_result)) {
@@ -1213,4 +1210,3 @@ include 'footer.php';
 if (ob_get_level() > 0) {
     ob_end_flush();
 }
-
