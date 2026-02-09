@@ -1210,6 +1210,4 @@ include 'footer.php';
 if (ob_get_level() > 0) {
     ob_end_flush();
 }
-1)beside clasess attdenced the total session calculated munch be filter by section 
-2) donot chnage the logic or ui?ux nad funtionality
-3) tell what you undestand and give me the correctcode whole code atnonec
+
