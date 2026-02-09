@@ -172,7 +172,7 @@ if ($conn) {
     // Try multiple queries to get sessions happened
     $happened_query =  "SELECT COUNT(DISTINCT session_id) as total_sessions 
                              FROM sessions 
-                             WHERE section_targeted = ? 
+                             WHERE section_targeted = (?)
                              AND start_time <= NOW()";
     $happened_result = mysqli_query($conn, $happened_query);
     
