@@ -59,7 +59,10 @@ $total_possible_sessions = 0;
 $theory_sessions = 0;
 $lab_sessions = 0;
 $subjects_data = [];
-$total_attendance = 0; // Initialize total attendance variable
+$total_attendance = 0;
+$student_department = '';
+$student_year = '';
+$student_section = '';
 
 // Get student details - USING PREPARED STATEMENTS
 if ($conn) {
@@ -73,9 +76,13 @@ if ($conn) {
         mysqli_stmt_close($stmt);
     }
 
-    // Get student's attendance - USING PREPARED STATEMENTS
     if ($student) {
-        // FIRST: Get total attendance count (ALL records, not limited)
+        // Extract enrollment details for filtering
+        $student_department = $student['student_department'] ?? '';
+        $student_year = $student['year'] ?? '';
+        $student_section = $student['section'] ?? '';
+
+        // Get total attendance count
         $total_attendance_query = "SELECT COUNT(*) as total_count 
                                   FROM attendance_records ar 
                                   JOIN sessions ses ON ar.session_id = ses.session_id
@@ -91,14 +98,14 @@ if ($conn) {
             }
             mysqli_stmt_close($stmt_total);
         }
-        
-        // SECOND: Get recent attendance for display (limited to 10)
+
+        // Get recent attendance for display (limited to 10)
         $recent_attendance_query = "SELECT ar.*, s.subject_code, s.subject_name, ses.session_id, ses.start_time, ses.class_type, ses.lab_type
-                            FROM attendance_records ar 
-                            JOIN sessions ses ON ar.session_id = ses.session_id
-                            JOIN subjects s ON ses.subject_id = s.subject_id
-                            WHERE ar.student_id = ? 
-                            ORDER BY ar.marked_at DESC LIMIT 10";
+                                    FROM attendance_records ar 
+                                    JOIN sessions ses ON ar.session_id = ses.session_id
+                                    JOIN subjects s ON ses.subject_id = s.subject_id
+                                    WHERE ar.student_id = ? 
+                                    ORDER BY ar.marked_at DESC LIMIT 10";
         $stmt2 = mysqli_prepare($conn, $recent_attendance_query);
         if ($stmt2) {
             mysqli_stmt_bind_param($stmt2, "s", $student_id);
@@ -106,19 +113,50 @@ if ($conn) {
             $attendance_result = mysqli_stmt_get_result($stmt2);
             mysqli_stmt_close($stmt2);
         }
-        
-        // ==================== GET SESSIONS FROM SUBJECTS TABLE ====================
-        // Query to get all subjects and their target_sessions
-        $subjects_query = "SELECT subject_name, subject_code, target_sessions FROM subjects";
-        $result = mysqli_query($conn, $subjects_query);
-        
-        if ($result && mysqli_num_rows($result) > 0) {
-            while ($subject = mysqli_fetch_assoc($result)) {
+
+        // ==================== GET SUBJECTS FILTERED BY ENROLLMENT ====================
+        // Build WHERE clause dynamically based on available enrollment info
+        $where_conditions = [];
+        $subject_params = [];
+        $subject_types = '';
+
+        if (!empty($student_department)) {
+            $where_conditions[] = "department = ?";
+            $subject_params[] = $student_department;
+            $subject_types .= 's';
+        }
+        if (!empty($student_year)) {
+            $where_conditions[] = "year = ?";
+            $subject_params[] = $student_year;
+            $subject_types .= 's';
+        }
+        if (!empty($student_section)) {
+            $where_conditions[] = "section = ?";
+            $subject_params[] = $student_section;
+            $subject_types .= 's';
+        }
+
+        $subjects_query = "SELECT subject_id, subject_name, subject_code, target_sessions FROM subjects";
+        if (!empty($where_conditions)) {
+            $subjects_query .= " WHERE " . implode(' AND ', $where_conditions);
+        }
+
+        $stmt_subjects = mysqli_prepare($conn, $subjects_query);
+        if (!empty($subject_params)) {
+            mysqli_stmt_bind_param($stmt_subjects, $subject_types, ...$subject_params);
+        }
+        mysqli_stmt_execute($stmt_subjects);
+        $subjects_result = mysqli_stmt_get_result($stmt_subjects);
+
+        $subject_ids = [];
+        if ($subjects_result && mysqli_num_rows($subjects_result) > 0) {
+            while ($subject = mysqli_fetch_assoc($subjects_result)) {
+                $subject_ids[] = $subject['subject_id']; // store for later session filtering
                 $subject_name = strtolower($subject['subject_name']);
                 $subject_code = strtolower($subject['subject_code']);
                 $target_sessions = intval($subject['target_sessions']);
-                
-                // Check if it's a lab (based on common patterns)
+
+                // Determine if it's a lab subject
                 $is_lab = false;
                 if (strpos($subject_name, 'lab') !== false || 
                     strpos($subject_name, 'practical') !== false ||
@@ -129,32 +167,54 @@ if ($conn) {
                 } else {
                     $theory_sessions += $target_sessions;
                 }
-                
-                // Store subject data for display
+
                 $subjects_data[] = [
                     'name' => $subject['subject_name'],
                     'code' => $subject['subject_code'],
                     'target' => $target_sessions,
                     'is_lab' => $is_lab
                 ];
-                
+
                 $total_possible_sessions += $target_sessions;
             }
-            
-            // Free result
-            mysqli_free_result($result);
+            mysqli_stmt_close($stmt_subjects);
         } else {
-            // Fallback to default values if no subjects found
-            // Based on your information: 5 subjects + 3 labs
-            $theory_sessions = 5 * 15;  // 5 subjects × 15 weeks
-            $lab_sessions = 3 * 15;     // 3 labs × 15 weeks
+            // Fallback if no subjects found for this student
+            // Use default values based on your info: 5 subjects + 3 labs
+            $theory_sessions = 5 * 15;
+            $lab_sessions = 3 * 15;
             $total_possible_sessions = $theory_sessions + $lab_sessions;
+        }
+
+        // ==================== GET SESSIONS HAPPENED (ONLY FOR ENROLLED SUBJECTS) ====================
+        $sessions_happened = 0;
+        if (!empty($subject_ids)) {
+            // Use the subject IDs to count only relevant past sessions
+            $placeholders = implode(',', array_fill(0, count($subject_ids), '?'));
+            $happened_query = "SELECT COUNT(*) as total_happened 
+                               FROM sessions 
+                               WHERE subject_id IN ($placeholders) 
+                               AND start_time <= NOW()";
+            $stmt_happened = mysqli_prepare($conn, $happened_query);
+            $types_happened = str_repeat('i', count($subject_ids));
+            mysqli_stmt_bind_param($stmt_happened, $types_happened, ...$subject_ids);
+            mysqli_stmt_execute($stmt_happened);
+            $happened_result = mysqli_stmt_get_result($stmt_happened);
+            if ($row = mysqli_fetch_assoc($happened_result)) {
+                $sessions_happened = intval($row['total_happened']);
+            }
+            mysqli_stmt_close($stmt_happened);
+        }
+
+        // If no sessions happened yet, fallback to total_possible_sessions for percentage display
+        if ($sessions_happened == 0 && $total_possible_sessions > 0) {
+            // We can still show progress based on possible sessions, but it's better to indicate no sessions yet.
+            // We'll keep $sessions_happened as 0, and the UI will show "No sessions yet".
         }
     }
 }
 
 // ==================== CHECK IF GENDER IS SET ====================
-// If gender is not set, redirect to gender question page
 if (empty($student['gender'])) {
     if (ob_get_length() > 0) {
         ob_end_clean();
@@ -163,45 +223,13 @@ if (empty($student['gender'])) {
     exit;
 }
 
-// Note: $total_attendance is already calculated above using separate query
-
-// ==================== GET SESSIONS HAPPENED - FIXED VERSION ====================
-// Count how many sessions have actually happened (past sessions)
-$sessions_happened = 0;
-if ($conn) {
-    // Try multiple queries to get sessions happened
-    $happened_query = "SELECT COUNT(*) as total_happened FROM sessions WHERE start_time <= NOW()";
-    $happened_result = mysqli_query($conn, $happened_query);
-    
-    if ($happened_result && $row = mysqli_fetch_assoc($happened_result)) {
-        $sessions_happened = intval($row['total_happened']);
-    }
-    
-    // If still 0, try alternative query
-    if ($sessions_happened == 0) {
-        $alt_query = "SELECT COUNT(*) as total_happened FROM sessions WHERE DATE(start_time) <= CURDATE()";
-        $alt_result = mysqli_query($conn, $alt_query);
-        if ($alt_result && $row = mysqli_fetch_assoc($alt_result)) {
-            $sessions_happened = intval($row['total_happened']);
-        }
-    }
-    
-    // If still 0, use total_possible_sessions as fallback for percentage calculation
-    if ($sessions_happened == 0) {
-        $sessions_happened = $total_possible_sessions;
-    }
-}
-
-// ==================== CALCULATE ATTENDANCE PERCENTAGE - FIXED ====================
-// Attendance % = (sessions attended / sessions happened) × 100
+// ==================== CALCULATE ATTENDANCE PERCENTAGE ====================
 $attendance_percentage = 0;
 if ($sessions_happened > 0) {
     $attendance_percentage = round(($total_attendance / $sessions_happened) * 100, 1);
-} else {
-    $attendance_percentage = 0;
 }
 
-// Determine attendance status based on attendance percentage
+// Determine attendance status
 $attendance_status = "No Data";
 $attendance_class = "secondary";
 if ($sessions_happened > 0) {
@@ -227,138 +255,63 @@ if ($sessions_happened > 0) {
 }
 
 // ==================== Calculate 75% Attendance Predictor ====================
-// This stays the same - based on total possible sessions
 $sessions_for_75_percent = 0;
 $remaining_for_75_percent = 0;
 
 if ($total_possible_sessions > 0) {
-    // Sessions needed for 75% attendance
     $sessions_for_75_percent = ceil($total_possible_sessions * 0.75);
-    
-    // How many more sessions needed from current
     $remaining_for_75_percent = max(0, $sessions_for_75_percent - $total_attendance);
 }
 
 // ==================== Format Student ID Display ====================
-// Extract ID number and year from database
 $id_number = $student['id_number'] ?? $student_id;
 $year_field = $student['year'] ?? '';
 
-// Format year as E2 if year has 2 as input
 $year_display = "";
 if (!empty($year_field)) {
-    // If year is like "2" display as "E2"
     if ($year_field == '2') {
         $year_display = "E2";
-    } 
-    // If year is 4-digit like 2024, take last 2 digits
-    elseif (strlen($year_field) == 4) {
+    } elseif (strlen($year_field) == 4) {
         $last_two = substr($year_field, -2);
         $year_display = "E" . $last_two;
-    }
-    // For any other format
-    else {
+    } else {
         $year_display = "E" . $year_field;
     }
 }
 
-// Get QR code path
+// QR code path (for download button)
 $qr_path = "qrcodes/student_" . $student_id . ".png";
 
 $page_title = "Student Dashboard";
 include 'header.php';
 
-// Determine gender and set avatar
 $gender = strtolower($student['gender'] ?? 'male');
 $avatar_class = ($gender === 'female') ? 'female-avatar' : 'male-avatar';
-// ALWAYS USE default.png FOR ALL STUDENTS
 $default_avatar = 'default.png';
 ?>
-
 <style>
-    /* Mobile Responsive Styles */
+    /* All existing CSS remains unchanged */
     @media (max-width: 768px) {
-        .card {
-            margin-bottom: 15px;
-        }
-        
-        .waving-avatar {
-            width: 100px !important;
-            height: 100px !important;
-        }
-        
-        .profile-img {
-            width: 120px !important;
-            height: 120px !important;
-        }
-        
-        .timetable-card {
-            padding: 15px !important;
-        }
-        
-        .timetable-btn {
-            padding: 8px 15px !important;
-            font-size: 0.9rem !important;
-        }
-        
-        .qr-container {
-            width: 180px !important;
-            height: 180px !important;
-        }
-        
-        .table-responsive {
-            font-size: 0.85rem;
-        }
-        
-        .table th, .table td {
-            padding: 0.5rem !important;
-        }
-        
-        .stat-number {
-            font-size: 2rem !important;
-        }
-        
-        .predictor-card {
-            padding: 15px !important;
-        }
+        .card { margin-bottom: 15px; }
+        .waving-avatar { width: 100px !important; height: 100px !important; }
+        .profile-img { width: 120px !important; height: 120px !important; }
+        .timetable-card { padding: 15px !important; }
+        .timetable-btn { padding: 8px 15px !important; font-size: 0.9rem !important; }
+        .qr-container { width: 180px !important; height: 180px !important; }
+        .table-responsive { font-size: 0.85rem; }
+        .table th, .table td { padding: 0.5rem !important; }
+        .stat-number { font-size: 2rem !important; }
+        .predictor-card { padding: 15px !important; }
     }
-    
     @media (max-width: 576px) {
-        .col-md-4, .col-md-8 {
-            padding-left: 10px !important;
-            padding-right: 10px !important;
-        }
-        
-        .waving-avatar {
-            width: 80px !important;
-            height: 80px !important;
-        }
-        
-        .profile-img {
-            width: 100px !important;
-            height: 100px !important;
-        }
-        
-        .btn-lg {
-            padding: 0.5rem 1rem !important;
-            font-size: 0.9rem !important;
-        }
-        
-        .card-header h5 {
-            font-size: 1.1rem !important;
-        }
-        
-        .card-body h5 {
-            font-size: 1.2rem !important;
-        }
-        
-        .qr-container {
-            width: 150px !important;
-            height: 150px !important;
-        }
+        .col-md-4, .col-md-8 { padding-left: 10px !important; padding-right: 10px !important; }
+        .waving-avatar { width: 80px !important; height: 80px !important; }
+        .profile-img { width: 100px !important; height: 100px !important; }
+        .btn-lg { padding: 0.5rem 1rem !important; font-size: 0.9rem !important; }
+        .card-header h5 { font-size: 1.1rem !important; }
+        .card-body h5 { font-size: 1.2rem !important; }
+        .qr-container { width: 150px !important; height: 150px !important; }
     }
-
-    /* QR Code Container - Always white background */
     .qr-container {
         background-color: white !important;
         padding: 10px;
@@ -367,15 +320,11 @@ $default_avatar = 'default.png';
         display: inline-block;
         margin: 0 auto 15px auto;
     }
-    
-    /* Force QR code to be visible in dark mode */
     [data-bs-theme="dark"] .qr-container,
     .dark-mode .qr-container {
         background-color: white !important;
         border-color: #495057 !important;
     }
-    
-    /* Avatar Animation - NO SHAKING */
     .waving-avatar {
         width: 120px;
         height: 120px;
@@ -383,18 +332,9 @@ $default_avatar = 'default.png';
         background-repeat: no-repeat;
         background-position: center;
         margin: 0 auto;
-        /* No animation to prevent shaking */
     }
-    
-    .female-avatar {
-        background-image: url('assets/images/female_avatar.gif');
-    }
-    
-    .male-avatar {
-        background-image: url('assets/images/male_avatar.gif');
-    }
-    
-    /* Profile Picture Styling */
+    .female-avatar { background-image: url('assets/images/female_avatar.gif'); }
+    .male-avatar { background-image: url('assets/images/male_avatar.gif'); }
     .profile-img {
         width: 150px;
         height: 150px;
@@ -403,31 +343,18 @@ $default_avatar = 'default.png';
         box-shadow: 0 4px 15px rgba(0,0,0,0.1);
         transition: all 0.3s ease;
     }
-    
     .profile-img:hover {
         transform: scale(1.05);
         box-shadow: 0 6px 20px rgba(0,0,0,0.15);
     }
-    
-    /* Gender Badge */
     .gender-badge {
         font-size: 0.8rem;
         padding: 3px 10px;
         border-radius: 15px;
         margin-left: 5px;
     }
-    
-    .gender-male {
-        background-color: #007bff;
-        color: white;
-    }
-    
-    .gender-female {
-        background-color: #e83e8c;
-        color: white;
-    }
-    
-    /* Timetable Section */
+    .gender-male { background-color: #007bff; color: white; }
+    .gender-female { background-color: #e83e8c; color: white; }
     .timetable-card {
         background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
         color: white;
@@ -436,7 +363,6 @@ $default_avatar = 'default.png';
         margin-bottom: 20px;
         box-shadow: 0 4px 15px rgba(102, 126, 234, 0.2);
     }
-    
     .timetable-btn {
         background: white;
         color: #764ba2;
@@ -448,7 +374,6 @@ $default_avatar = 'default.png';
         text-decoration: none;
         display: inline-block;
     }
-    
     .timetable-btn:hover {
         background: #f8f9fa;
         transform: translateY(-2px);
@@ -456,8 +381,6 @@ $default_avatar = 'default.png';
         color: #764ba2;
         text-decoration: none;
     }
-    
-    /* Stats Cards */
     .stat-card {
         border-radius: 10px;
         padding: 15px;
@@ -466,25 +389,10 @@ $default_avatar = 'default.png';
         text-align: center;
         box-shadow: 0 4px 10px rgba(0,0,0,0.1);
     }
-    
-    .stat-card-1 {
-        background: linear-gradient(135deg, #28a745 0%, #20c997 100%);
-    }
-    
-    .stat-card-2 {
-        background: linear-gradient(135deg, #ffc107 0%, #fd7e14 100%);
-    }
-    
-    .stat-card-3 {
-        background: linear-gradient(135deg, #6f42c1 0%, #e83e8c 100%);
-    }
-    
-    .stat-number {
-        font-size: 2.5rem;
-        font-weight: bold;
-        margin-bottom: 5px;
-    }
-    
+    .stat-card-1 { background: linear-gradient(135deg, #28a745 0%, #20c997 100%); }
+    .stat-card-2 { background: linear-gradient(135deg, #ffc107 0%, #fd7e14 100%); }
+    .stat-card-3 { background: linear-gradient(135deg, #6f42c1 0%, #e83e8c 100%); }
+    .stat-number { font-size: 2.5rem; font-weight: bold; margin-bottom: 5px; }
     .attendance-status-badge {
         font-size: 0.9rem;
         padding: 5px 15px;
@@ -492,62 +400,44 @@ $default_avatar = 'default.png';
         margin-top: 10px;
         display: inline-block;
     }
-    
-    /* QR Code Download Button */
     .qr-download-btn {
         background: linear-gradient(45deg, #28a745, #20c997);
         border: none;
         transition: all 0.3s ease;
     }
-    
     .qr-download-btn:hover {
         transform: translateY(-2px);
         box-shadow: 0 4px 15px rgba(40, 167, 69, 0.3);
     }
-    
-    /* Attendance Table */
-    .attendance-table tr:hover {
-        background-color: rgba(0, 123, 255, 0.05);
-    }
-    
-    /* Custom Scrollbar */
+    .attendance-table tr:hover { background-color: rgba(0, 123, 255, 0.05); }
     .recent-attendance-scroll {
         max-height: 400px;
         overflow-y: auto;
     }
-    
     .recent-attendance-scroll::-webkit-scrollbar {
         width: 6px;
     }
-    
     .recent-attendance-scroll::-webkit-scrollbar-track {
         background: #f1f1f1;
         border-radius: 10px;
     }
-    
     .recent-attendance-scroll::-webkit-scrollbar-thumb {
         background: #888;
         border-radius: 10px;
     }
-    
     .recent-attendance-scroll::-webkit-scrollbar-thumb:hover {
         background: #555;
     }
-    
-    /* Progress Bar */
     .attendance-progress {
         height: 20px;
         border-radius: 10px;
         margin: 10px 0;
     }
-    
     .progress-percentage {
         font-size: 0.9rem;
         font-weight: bold;
         margin-top: 5px;
     }
-    
-    /* 75% Predictor Card */
     .predictor-card {
         background: linear-gradient(135deg, #17a2b8 0%, #20c997 100%);
         color: white;
@@ -556,25 +446,20 @@ $default_avatar = 'default.png';
         margin-bottom: 20px;
         box-shadow: 0 4px 15px rgba(23, 162, 184, 0.2);
     }
-    
     .predictor-number {
         font-size: 2.8rem;
         font-weight: bold;
         margin-bottom: 10px;
         text-align: center;
     }
-    
     .predictor-label {
         font-size: 1.1rem;
         margin-bottom: 5px;
     }
-    
     .predictor-detail {
         font-size: 0.9rem;
         opacity: 0.9;
     }
-    
-    /* Calculation Box */
     .calculation-box {
         background: rgba(255, 255, 255, 0.1);
         border-radius: 8px;
@@ -582,8 +467,6 @@ $default_avatar = 'default.png';
         margin-top: 15px;
         border-left: 4px solid #ffc107;
     }
-    
-    /* Subjects Breakdown */
     .subjects-breakdown {
         margin-top: 15px;
         padding: 10px;
@@ -591,18 +474,15 @@ $default_avatar = 'default.png';
         border-radius: 8px;
         font-size: 0.9rem;
     }
-    
     .subject-item {
         display: flex;
         justify-content: space-between;
         padding: 5px 0;
         border-bottom: 1px solid #dee2e6;
     }
-    
     .subject-item:last-child {
         border-bottom: none;
     }
-    
     .lab-badge {
         background-color: #17a2b8;
         color: white;
@@ -611,7 +491,6 @@ $default_avatar = 'default.png';
         font-size: 0.8rem;
         margin-left: 5px;
     }
-    
     .subject-badge {
         background-color: #28a745;
         color: white;
@@ -620,7 +499,6 @@ $default_avatar = 'default.png';
         font-size: 0.8rem;
         margin-left: 5px;
     }
-    
     .session-info {
         font-size: 0.8rem;
         color: #6c757d;
@@ -655,10 +533,8 @@ $default_avatar = 'default.png';
                 <h5 class="mb-0"><i class="fas fa-user me-2"></i>My Profile</h5>
             </div>
             <div class="card-body text-center">
-                <!-- Profile Picture - ALWAYS USE default.png -->
                 <div class="mb-3">
                     <?php
-                    // ALWAYS USE default.png FOR ALL STUDENTS
                     $profile_pic = 'uploads/profiles/' . $default_avatar;
                     ?>
                     <img src="<?php echo htmlspecialchars($profile_pic); ?>" 
@@ -669,11 +545,9 @@ $default_avatar = 'default.png';
                 
                 <h5 class="card-title"><?php echo htmlspecialchars($student['student_name'] ?? 'Student'); ?></h5>
                 <p class="card-text text-muted">
-                    <!-- Display student_id and id_number correctly -->
                     <i class="fas fa-id-card me-1"></i> Student ID: <?php echo htmlspecialchars($student_id); ?><br>
                     <i class="fas fa-hashtag me-1"></i> ID Number: <?php echo htmlspecialchars($id_number); ?><br>
                     
-                    <!-- Display year as E2 format -->
                     <?php if (!empty($year_display)): ?>
                     <i class="fas fa-calendar-alt me-1"></i> Year: <?php echo htmlspecialchars($year_display); ?><br>
                     <?php endif; ?>
@@ -694,7 +568,6 @@ $default_avatar = 'default.png';
             </div>
             <div class="card-body text-center">
                 <?php if (!empty($student['qr_content'])): ?>
-                    <!-- Normal QR Code Container -->
                     <div class="qr-container">
                         <div id="qrcode"></div>
                     </div>
@@ -859,7 +732,7 @@ $default_avatar = 'default.png';
                         <?php else: ?>
                         <div class="alert alert-warning">
                             <i class="fas fa-info-circle me-2"></i>
-                            No class sessions have been scheduled yet.
+                            No class sessions have been scheduled yet for your enrolled subjects.
                         </div>
                         <?php endif; ?>
                         
@@ -1007,7 +880,6 @@ $default_avatar = 'default.png';
                                         $class_type = $record['class_type'] ?? '';
                                         $lab_type = $record['lab_type'] ?? '';
                                         
-                                        // Check if it's a lab based on class_type and lab_type
                                         $is_lab = false;
                                         if ($class_type === 'lab') {
                                             $is_lab = true;
@@ -1015,7 +887,6 @@ $default_avatar = 'default.png';
                                             $is_lab = false;
                                         }
                                         
-                                        // Determine session type display
                                         $session_type_display = "Lecture";
                                         if ($is_lab) {
                                             if ($lab_type === 'pre-lab') {
@@ -1101,22 +972,18 @@ $default_avatar = 'default.png';
 <!-- QR Code Library -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 <script>
-// Generate QR code from database content
 <?php if (!empty($student['qr_content'])): ?>
 document.addEventListener('DOMContentLoaded', function() {
-    // Clear existing QR code
     const qrElement = document.getElementById('qrcode');
     if (qrElement) {
         qrElement.innerHTML = '';
     }
-    
-    // Create normal QR code with black on white
     var qrcode = new QRCode(document.getElementById("qrcode"), {
         text: "<?php echo addslashes($student['qr_content']); ?>",
         width: 180,
         height: 180,
-        colorDark: "#000000",  // Always black
-        colorLight: "#ffffff", // Always white
+        colorDark: "#000000",
+        colorLight: "#ffffff",
         correctLevel: QRCode.CorrectLevel.H
     });
 });
@@ -1127,29 +994,19 @@ function downloadQR() {
         alert('QR code not found!');
         return;
     }
-    
-    // Create a temporary white background
     var tempCanvas = document.createElement('canvas');
     var ctx = tempCanvas.getContext('2d');
     tempCanvas.width = canvas.width;
     tempCanvas.height = canvas.height;
-    
-    // Fill with white background
     ctx.fillStyle = '#ffffff';
     ctx.fillRect(0, 0, tempCanvas.width, tempCanvas.height);
-    
-    // Draw the QR code on top
     ctx.drawImage(canvas, 0, 0);
-    
-    // Create download link
     var link = document.createElement('a');
     link.download = 'Attendance_QR_<?php echo $student_id; ?>.png';
     link.href = tempCanvas.toDataURL("image/png");
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
-    
-    // Show success message
     showAlert('success', 'QR code downloaded successfully!');
 }
 <?php endif; ?>
@@ -1169,8 +1026,6 @@ function showAlert(type, message) {
         </div>
     `;
     document.body.appendChild(alertDiv);
-    
-    // Auto remove after 3 seconds
     setTimeout(() => {
         if (alertDiv.parentNode) {
             const bsAlert = new bootstrap.Alert(alertDiv);
@@ -1179,7 +1034,6 @@ function showAlert(type, message) {
     }, 3000);
 }
 
-// Update current time every minute
 function updateCurrentTime() {
     const now = new Date();
     const timeString = now.toLocaleTimeString('en-IN', { 
@@ -1189,24 +1043,20 @@ function updateCurrentTime() {
     });
     document.getElementById('current-time').textContent = timeString;
 }
-
-// Update time every minute
 setInterval(updateCurrentTime, 60000);
 
-// Auto-refresh attendance data every 60 seconds
 setTimeout(function() {
-    // Show refresh notification
     showAlert('info', 'Refreshing attendance data...');
     setTimeout(function() {
         location.reload();
     }, 1000);
-}, 60000); // 60 seconds
+}, 60000);
 </script>
 
 <?php 
 include 'footer.php';
 
-// Clean up and flush output
 if (ob_get_level() > 0) {
     ob_end_flush();
 }
+?>
