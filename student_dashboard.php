@@ -1209,4 +1209,4 @@ include 'footer.php';
 // Clean up and flush output
 if (ob_get_level() > 0) {
     ob_end_flush();
-}
+} 
