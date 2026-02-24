@@ -60,6 +60,7 @@ $theory_sessions = 0;
 $lab_sessions = 0;
 $subjects_data = [];
 $total_attendance = 0; // Initialize total attendance variable
+$student_section = ''; // Will hold the student's section
 
 // Get student details - USING PREPARED STATEMENTS
 if ($conn) {
@@ -71,6 +72,9 @@ if ($conn) {
         $result = mysqli_stmt_get_result($stmt);
         $student = mysqli_fetch_assoc($result);
         mysqli_stmt_close($stmt);
+
+        // Extract student's section for later filtering
+        $student_section = $student['section'] ?? '';
     }
 
     // Get student's attendance - USING PREPARED STATEMENTS
@@ -165,34 +169,31 @@ if (empty($student['gender'])) {
 
 // Note: $total_attendance is already calculated above using separate query
 
-// ==================== GET SESSIONS HAPPENED - FIXED VERSION ====================
-// Count how many sessions have actually happened (past sessions)
+// ==================== GET SESSIONS HAPPENED - FILTERED BY STUDENT'S SECTION ====================
+// Count how many sessions have actually happened (past sessions) for the student's section
 $sessions_happened = 0;
-if ($conn) {
-    // Try multiple queries to get sessions happened
-    $happened_query = "SELECT COUNT(*) as total_happened FROM sessions WHERE start_time <= NOW()";
-    $happened_result = mysqli_query($conn, $happened_query);
-    
-    if ($happened_result && $row = mysqli_fetch_assoc($happened_result)) {
-        $sessions_happened = intval($row['total_happened']);
-    }
-    
-    // If still 0, try alternative query
-    if ($sessions_happened == 0) {
-        $alt_query = "SELECT COUNT(*) as total_happened FROM sessions WHERE DATE(start_time) <= CURDATE()";
-        $alt_result = mysqli_query($conn, $alt_query);
-        if ($alt_result && $row = mysqli_fetch_assoc($alt_result)) {
+if ($conn && !empty($student_section)) {
+    // Use prepared statement to count sessions for this section that are in the past
+    $happened_query = "SELECT COUNT(*) as total_happened 
+                       FROM sessions 
+                       WHERE section_targeted = ? 
+                         AND start_time <= NOW()";
+    $stmt_happened = mysqli_prepare($conn, $happened_query);
+    if ($stmt_happened) {
+        mysqli_stmt_bind_param($stmt_happened, "s", $student_section);
+        mysqli_stmt_execute($stmt_happened);
+        $happened_result = mysqli_stmt_get_result($stmt_happened);
+        if ($row = mysqli_fetch_assoc($happened_result)) {
             $sessions_happened = intval($row['total_happened']);
         }
-    }
-    
-    // If still 0, use total_possible_sessions as fallback for percentage calculation
-    if ($sessions_happened == 0) {
-        $sessions_happened = $total_possible_sessions;
+        mysqli_stmt_close($stmt_happened);
     }
 }
 
-// ==================== CALCULATE ATTENDANCE PERCENTAGE - FIXED ====================
+// If no sessions happened yet (or no section), we keep $sessions_happened = 0
+// The UI will show "No sessions yet"
+
+// ==================== CALCULATE ATTENDANCE PERCENTAGE ====================
 // Attendance % = (sessions attended / sessions happened) × 100
 $attendance_percentage = 0;
 if ($sessions_happened > 0) {
@@ -275,6 +276,7 @@ $avatar_class = ($gender === 'female') ? 'female-avatar' : 'male-avatar';
 $default_avatar = 'default.png';
 ?>
 
+<!-- All CSS styles remain exactly as you provided -->
 <style>
     /* Mobile Responsive Styles */
     @media (max-width: 768px) {
@@ -1209,4 +1211,5 @@ include 'footer.php';
 // Clean up and flush output
 if (ob_get_level() > 0) {
     ob_end_flush();
-} 
+}
+?>
