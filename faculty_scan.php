@@ -1,5 +1,5 @@
 <?php
-// faculty_scan.php - No manual input form, only QR scanner + confirmation popup
+// faculty_scan.php - QR scanner only, no manual form. Link to mark_attendance.php
 
 if (!ob_get_level()) ob_start();
 ini_set('session.save_path', '/tmp');
@@ -9,7 +9,7 @@ if (session_status() === PHP_SESSION_NONE) @session_start();
 
 require_once 'config.php';
 
-// ==================== Security ====================
+// Security checks
 if (!isset($_SESSION['logged_in']) || $_SESSION['logged_in'] !== true ||
     !isset($_SESSION['role']) || $_SESSION['role'] !== 'faculty' ||
     !isset($_SESSION['faculty_id'])) {
@@ -22,7 +22,7 @@ $faculty_id = $_SESSION['faculty_id'];
 $session_id = isset($_GET['session_id']) ? intval($_GET['session_id']) : 0;
 if (ob_get_length() > 0 && !headers_sent()) { ob_end_clean(); ob_start(); }
 
-// ==================== Get active sessions ====================
+// Get active sessions
 if ($session_id === 0) {
     $active_sessions_query = "SELECT s.session_id, s.section_targeted, s.class_type, 
                                      sub.subject_code, sub.subject_name
@@ -41,7 +41,7 @@ if ($session_id === 0) {
     }
 }
 
-// ==================== Get session details ====================
+// Get session details
 $session_info = null;
 if ($session_id > 0) {
     $stmt = mysqli_prepare($conn, 
@@ -59,7 +59,7 @@ if ($session_id > 0) {
     }
 }
 
-// ==================== Handle attendance marking (POST from scanner popup) ====================
+// Handle attendance marking (POST from scanner popup)
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['mark_attendance'])) {
 
     $scanned_qr = trim($_POST['scanned_qr'] ?? '');
@@ -72,7 +72,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['mark_attendance'])) {
         exit;
     }
 
-    // Extract roll number from QR (remove optional QR_ prefix)
+    // Extract roll number from QR
     $qr_upper = strtoupper($scanned_qr);
     if (strpos($qr_upper, "QR_") === 0) {
         $qr_roll = substr($qr_upper, 3);
@@ -140,7 +140,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['mark_attendance'])) {
         exit;
     }
 
-    // Insert
+    // Insert attendance
     $current_time = date('Y-m-d H:i:s');
     $insert = mysqli_prepare($conn,
         "INSERT INTO attendance_records (session_id, student_id, marked_at) 
@@ -182,10 +182,10 @@ $page_title = "QR Code Scanner";
 <div class="container-fluid py-4">
     <div class="row">
         <div class="col-12">
-            <!-- Back Button + Manual Attendance Link -->
+            <!-- Back Button + Manual Attendance Link (corrected spelling) -->
             <div class="mb-4 d-flex justify-content-between align-items-center">
                 <a href="faculty_dashboard.php" class="btn btn-outline-secondary"><i class="fas fa-arrow-left me-2"></i> Back to Dashboard</a>
-                <a href="markattendance.php" class="btn btn-outline-primary"><i class="fas fa-pen-alt me-2"></i> Manual Attendance</a>
+                <a href="mark_attendance.php" class="btn btn-outline-primary"><i class="fas fa-pen-alt me-2"></i> Manual Attendance</a>
             </div>
 
             <!-- Page Header -->
