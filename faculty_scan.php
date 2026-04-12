@@ -1,5 +1,7 @@
 <?php
 // faculty_scan.php - Fixed for Render + Aiven
+// MODIFIED: Manual entry accepts both numeric ID (e.g., 305) or roll number (e.g., R220849)
+//           and verifies that the entered student matches the scanned QR.
 
 // ==================== CRITICAL: Start output buffering ====================
 if (!ob_get_level()) {
@@ -95,64 +97,91 @@ if ($session_id > 0) {
     }
 }
 
-// ==================== Handle manual attendance marking ====================
+// ==================== Handle attendance marking (QR + Manual Entry with validation) ====================
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['mark_attendance'])) {
-    $student_id = trim($_POST['student_id'] ?? '');
+    // Get data from AJAX (or manual form)
+    $scanned_qr = trim($_POST['scanned_qr'] ?? '');
+    $entered_value = trim($_POST['entered_student_id'] ?? '');
     $current_session_id = intval($_POST['session_id'] ?? 0);
 
-    if (!empty($student_id) && $current_session_id > 0) {
-        // Check if student exists and is in correct section
-        $check_student = mysqli_prepare($conn, 
-            "SELECT student_id, student_name FROM students 
-             WHERE student_id = ? AND section = (
-                 SELECT section_targeted FROM sessions WHERE session_id = ?
-             )");
-        mysqli_stmt_bind_param($check_student, "si", $student_id, $current_session_id);
-        mysqli_stmt_execute($check_student);
-        $student_result = mysqli_stmt_get_result($check_student);
+    // For backward compatibility: if old JS sends 'student_id' instead of 'entered_student_id'
+    if (empty($entered_value) && isset($_POST['student_id'])) {
+        $entered_value = trim($_POST['student_id']);
+    }
+    // Also if 'scanned_qr' is missing, maybe QR was not used (manual only) - we still need to validate.
+    // But in our flow, QR is always scanned first. We'll require both for security.
+    if (empty($scanned_qr) || empty($entered_value)) {
+        $_SESSION['scan_error'] = "QR scan and manual entry both required.";
+        header("Location: faculty_scan.php?session_id=$current_session_id");
+        exit;
+    }
 
-        if (mysqli_num_rows($student_result) > 0) {
-            $student_data = mysqli_fetch_assoc($student_result);
+    // Validate QR format (must start with QR_)
+    if (!str_starts_with($scanned_qr, "QR_")) {
+        $_SESSION['scan_error'] = "Invalid QR format. QR must start with 'QR_'.";
+        header("Location: faculty_scan.php?session_id=$current_session_id");
+        exit;
+    }
 
-            // Check if attendance already marked
-            $check_attendance = mysqli_prepare($conn,
-                "SELECT * FROM attendance_records 
-                 WHERE session_id = ? AND student_id = ? LIMIT 1");
-            mysqli_stmt_bind_param($check_attendance, "is", $current_session_id, $student_id);
-            mysqli_stmt_execute($check_attendance);
-            $attendance_result = mysqli_stmt_get_result($check_attendance);
+    // Extract roll number from QR (remove 'QR_' prefix)
+    $qr_roll = strtoupper(trim(str_replace("QR_", "", $scanned_qr)));
 
-            if (mysqli_num_rows($attendance_result) == 0) {
-                // Mark attendance with current time in Asia/Kolkata
-                $current_time = date('Y-m-d H:i:s');
-                $insert_attendance = mysqli_prepare($conn,
-                    "INSERT INTO attendance_records (session_id, student_id, marked_at) 
-                     VALUES (?, ?, ?)");
-                mysqli_stmt_bind_param($insert_attendance, "iss", $current_session_id, $student_id, $current_time);
+    // Look up student by entered value (could be numeric ID or roll number)
+    // Assuming students table has: id (INT, auto increment), student_id (VARCHAR, roll number)
+    $find_student_sql = "SELECT id, student_id, student_name, section 
+                         FROM students 
+                         WHERE id = ? OR student_id = ?";
+    $find_stmt = mysqli_prepare($conn, $find_student_sql);
+    mysqli_stmt_bind_param($find_stmt, "is", $entered_value, $entered_value);
+    mysqli_stmt_execute($find_stmt);
+    $student_result = mysqli_stmt_get_result($find_stmt);
 
-                if (mysqli_stmt_execute($insert_attendance)) {
-                    $_SESSION['scan_success'] = "Attendance marked for " . htmlspecialchars($student_data['student_name']) . " (ID: $student_id)";
-                } else {
-                    $_SESSION['scan_error'] = "Failed to mark attendance. Please try again.";
-                }
-            } else {
-                $existing_record = mysqli_fetch_assoc($attendance_result);
-                $existing_time = date('h:i A', strtotime($existing_record['marked_at']));
-                $_SESSION['scan_error'] = "Attendance already marked for Student ID: $student_id at $existing_time";
-            }
-        } else {
-            $_SESSION['scan_error'] = "Student not found in this section or invalid ID.";
-        }
+    if (mysqli_num_rows($student_result) == 0) {
+        $_SESSION['scan_error'] = "Student not found with given ID or Roll Number.";
+        header("Location: faculty_scan.php?session_id=$current_session_id");
+        exit;
+    }
+    $student = mysqli_fetch_assoc($student_result);
+    $student_roll = strtoupper($student['student_id']);  // actual roll number from DB
+
+    // Compare QR roll number with student's roll number
+    if ($qr_roll !== $student_roll) {
+        $_SESSION['scan_error'] = "QR code does NOT belong to this student. (QR roll: $qr_roll, Student roll: $student_roll)";
+        header("Location: faculty_scan.php?session_id=$current_session_id");
+        exit;
+    }
+
+    // Check that student's section matches session's targeted section
+    $session_section = $session_info['section_targeted'] ?? '';
+    if ($student['section'] !== $session_section) {
+        $_SESSION['scan_error'] = "Student section ({$student['section']}) does not match session section ($session_section).";
+        header("Location: faculty_scan.php?session_id=$current_session_id");
+        exit;
+    }
+
+    // Prevent duplicate attendance for this session
+    $check_att = mysqli_prepare($conn,
+        "SELECT 1 FROM attendance_records WHERE session_id = ? AND student_id = ?");
+    mysqli_stmt_bind_param($check_att, "is", $current_session_id, $student_roll);
+    mysqli_stmt_execute($check_att);
+    $att_exists = mysqli_stmt_get_result($check_att);
+    if (mysqli_num_rows($att_exists) > 0) {
+        $_SESSION['scan_error'] = "Attendance already marked for this student in this session.";
+        header("Location: faculty_scan.php?session_id=$current_session_id");
+        exit;
+    }
+
+    // Mark attendance (store student_roll in attendance_records.student_id)
+    $current_time = date('Y-m-d H:i:s');
+    $insert = mysqli_prepare($conn,
+        "INSERT INTO attendance_records (session_id, student_id, marked_at) VALUES (?, ?, ?)");
+    mysqli_stmt_bind_param($insert, "iss", $current_session_id, $student_roll, $current_time);
+    if (mysqli_stmt_execute($insert)) {
+        $_SESSION['scan_success'] = "Attendance marked for " . htmlspecialchars($student['student_name']) . " (Roll: $student_roll)";
     } else {
-        $_SESSION['scan_error'] = "Please enter a valid Student ID.";
+        $_SESSION['scan_error'] = "Database error. Could not mark attendance.";
     }
 
-    // Clean buffer before redirect
-    if (ob_get_length() > 0) {
-        ob_end_clean();
-    }
-
-    // Redirect to refresh page
     header("Location: faculty_scan.php?session_id=$current_session_id");
     exit;
 }
@@ -418,32 +447,31 @@ $page_title = "QR Code Scanner";
                                 <div id="qr-reader" style="width: 100%; max-width: 600px; margin: 0 auto;"></div>
                                 <div id="qr-reader-results" class="mt-3"></div>
 
-                                <!-- Manual Input Form -->
+                                <!-- Manual Input Form (now acts as confirmation after QR scan) -->
                                 <div class="mt-4 pt-4 border-top">
-                                    <h5 class="mb-3"><i class="fas fa-keyboard me-2"></i> Manual Entry</h5>
-                                    <form method="POST" class="row g-3 justify-content-center">
+                                    <h5 class="mb-3"><i class="fas fa-keyboard me-2"></i> Manual Entry (for confirmation)</h5>
+                                    <p class="text-muted small">After scanning QR, enter student's <strong>numeric ID</strong> (e.g., 305) or <strong>Roll Number</strong> (e.g., R220849) to confirm.</p>
+                                    <div class="row g-3 justify-content-center">
                                         <div class="col-md-6">
                                             <div class="input-group input-group-lg">
                                                 <span class="input-group-text bg-primary text-white">
                                                     <i class="fas fa-id-card"></i>
                                                 </span>
-                                                <input type="text" name="student_id" class="form-control" 
-                                                       placeholder="Enter Student ID" required>
-                                                <input type="hidden" name="session_id" value="<?php echo $session_id; ?>">
+                                                <input type="text" id="manualConfirmInput" class="form-control" 
+                                                       placeholder="Enter ID or Roll Number">
                                             </div>
                                         </div>
                                         <div class="col-md-3">
-                                            <button type="submit" name="mark_attendance" class="btn btn-primary btn-lg w-100">
-                                                <i class="fas fa-check-circle me-2"></i> Mark Attendance
+                                            <button id="confirmAttendanceBtn" class="btn btn-primary btn-lg w-100" disabled>
+                                                <i class="fas fa-check-circle me-2"></i> Confirm & Mark
                                             </button>
                                         </div>
                                         <div class="col-md-3">
-                                            <button type="button" class="btn btn-outline-secondary btn-lg w-100"
-                                                    onclick="document.querySelector('[name=student_id]').value = ''; document.querySelector('[name=student_id]').focus();">
+                                            <button type="button" class="btn btn-outline-secondary btn-lg w-100" id="clearManualBtn">
                                                 <i class="fas fa-times"></i> Clear
                                             </button>
                                         </div>
-                                    </form>
+                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -459,33 +487,23 @@ $page_title = "QR Code Scanner";
                             <div class="card-body">
                                 <div class="list-group list-group-flush">
                                     <div class="list-group-item d-flex align-items-center">
-                                        <div class="me-3">
-                                            <span class="badge bg-primary rounded-circle p-2">1</span>
-                                        </div>
+                                        <div class="me-3"><span class="badge bg-primary rounded-circle p-2">1</span></div>
                                         <div>Allow camera access when prompted</div>
                                     </div>
                                     <div class="list-group-item d-flex align-items-center">
-                                        <div class="me-3">
-                                            <span class="badge bg-success rounded-circle p-2">2</span>
-                                        </div>
+                                        <div class="me-3"><span class="badge bg-success rounded-circle p-2">2</span></div>
                                         <div>Position QR code within scanner frame</div>
                                     </div>
                                     <div class="list-group-item d-flex align-items-center">
-                                        <div class="me-3">
-                                            <span class="badge bg-warning rounded-circle p-2">3</span>
-                                        </div>
-                                        <div>Scanner will beep on successful scan</div>
+                                        <div class="me-3"><span class="badge bg-warning rounded-circle p-2">3</span></div>
+                                        <div>After scan, enter student's numeric ID or Roll Number</div>
                                     </div>
                                     <div class="list-group-item d-flex align-items-center">
-                                        <div class="me-3">
-                                            <span class="badge bg-danger rounded-circle p-2">4</span>
-                                        </div>
-                                        <div>Or manually enter Student ID above</div>
+                                        <div class="me-3"><span class="badge bg-danger rounded-circle p-2">4</span></div>
+                                        <div>Click "Confirm & Mark" to complete attendance</div>
                                     </div>
                                     <div class="list-group-item d-flex align-items-center">
-                                        <div class="me-3">
-                                            <span class="badge bg-dark rounded-circle p-2">5</span>
-                                        </div>
+                                        <div class="me-3"><span class="badge bg-dark rounded-circle p-2">5</span></div>
                                         <div>Click "Stop Session" when class ends</div>
                                     </div>
                                 </div>
@@ -539,7 +557,7 @@ $page_title = "QR Code Scanner";
                                 <div class="text-center py-5">
                                     <i class="fas fa-user-clock fa-3x text-muted mb-3"></i>
                                     <h6 class="text-muted mb-2">No attendance marked yet</h6>
-                                    <p class="text-muted small">Scan or enter student IDs to mark attendance</p>
+                                    <p class="text-muted small">Scan QR and confirm to mark attendance</p>
                                 </div>
                                 <?php endif; ?>
 
@@ -598,6 +616,9 @@ $page_title = "QR Code Scanner";
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 
     <script>
+    // Global variable to store the last scanned QR value
+    let lastScannedQR = '';
+
     // Update current time every second
     function updateCurrentTime() {
         const now = new Date();
@@ -632,8 +653,8 @@ $page_title = "QR Code Scanner";
 
     // Initialize time updates
     setInterval(updateCurrentTime, 1000);
-    setInterval(updateSessionDuration, 60000); // Update every minute
-    updateSessionDuration(); // Initial call
+    setInterval(updateSessionDuration, 60000);
+    updateSessionDuration();
 
     // Display messages from session
     <?php if (isset($_SESSION['scan_success'])): ?>
@@ -659,36 +680,37 @@ $page_title = "QR Code Scanner";
         // Play success sound
         playBeepSound();
 
-        // Get current time in Indian format
-        const now = new Date();
-        const scanTime = now.toLocaleTimeString('en-IN', { 
-            hour: '2-digit', 
-            minute: '2-digit',
-            hour12: true 
-        });
+        // Store scanned QR value globally
+        lastScannedQR = decodedText;
 
-        // Show scan result
+        // Get current time
+        const now = new Date();
+        const scanTime = now.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true });
+
+        // Show scan result and enable manual confirmation input
         document.getElementById('qr-reader-results').innerHTML = `
             <div class="alert alert-success alert-dismissible fade show">
                 <div class="d-flex align-items-center">
                     <i class="fas fa-check-circle fa-2x me-3"></i>
                     <div>
                         <h5 class="mb-1">QR Code Scanned Successfully!</h5>
-                        <p class="mb-1">Student ID: <strong>${decodedText}</strong></p>
+                        <p class="mb-1">QR Value: <strong>${decodedText}</strong></p>
                         <p class="mb-2">Scan time: <strong>${scanTime}</strong></p>
-                        <div class="d-flex gap-2">
-                            <button onclick="markAttendance('${decodedText}')" class="btn btn-success">
-                                <i class="fas fa-check me-1"></i> Mark Attendance
-                            </button>
-                            <button onclick="resumeScanner()" class="btn btn-outline-secondary">
-                                <i class="fas fa-redo me-1"></i> Scan Again
-                            </button>
-                        </div>
+                        <p class="mb-0 small text-muted">Now enter Student ID or Roll Number below and click Confirm.</p>
                     </div>
                 </div>
                 <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
             </div>
         `;
+
+        // Enable confirm button and focus on input
+        const confirmBtn = document.getElementById('confirmAttendanceBtn');
+        const manualInput = document.getElementById('manualConfirmInput');
+        if (confirmBtn) confirmBtn.disabled = false;
+        if (manualInput) {
+            manualInput.value = '';
+            manualInput.focus();
+        }
     }
 
     function onScanFailure(error) {
@@ -718,7 +740,7 @@ $page_title = "QR Code Scanner";
         }
     }
 
-    function markAttendance(studentId) {
+    function markAttendance(scannedQR, enteredValue) {
         // Show processing message
         document.getElementById('qr-reader-results').innerHTML = `
             <div class="alert alert-info">
@@ -726,7 +748,7 @@ $page_title = "QR Code Scanner";
                     <i class="fas fa-spinner fa-spin me-3"></i>
                     <div>
                         <h6 class="mb-0">Processing...</h6>
-                        <p class="mb-0">Marking attendance for Student ID: <strong>${studentId}</strong></p>
+                        <p class="mb-0">Verifying and marking attendance...</p>
                     </div>
                 </div>
             </div>
@@ -734,7 +756,8 @@ $page_title = "QR Code Scanner";
 
         // Submit form via AJAX
         const formData = new FormData();
-        formData.append('student_id', studentId);
+        formData.append('scanned_qr', scannedQR);
+        formData.append('entered_student_id', enteredValue);
         formData.append('session_id', <?php echo $session_id; ?>);
         formData.append('mark_attendance', '1');
 
@@ -750,25 +773,55 @@ $page_title = "QR Code Scanner";
             }
         })
         .then(() => {
-            // Refresh page to show updated attendance
             window.location.reload();
         })
         .catch(error => {
             console.error('Error:', error);
-            showAlert('danger', 'Failed to mark attendance. Please try manually.');
+            showAlert('danger', 'Failed to mark attendance. Please try again.');
             resumeScanner();
         });
     }
 
     function resumeScanner() {
         document.getElementById('qr-reader-results').innerHTML = '';
+        lastScannedQR = '';
+        const confirmBtn = document.getElementById('confirmAttendanceBtn');
+        if (confirmBtn) confirmBtn.disabled = true;
+        const manualInput = document.getElementById('manualConfirmInput');
+        if (manualInput) manualInput.value = '';
         if (html5QrcodeScanner) {
             html5QrcodeScanner.resume();
         }
     }
 
-    // Initialize scanner when page loads
+    // Event listener for confirm button
     document.addEventListener('DOMContentLoaded', function() {
+        const confirmBtn = document.getElementById('confirmAttendanceBtn');
+        const manualInput = document.getElementById('manualConfirmInput');
+        const clearBtn = document.getElementById('clearManualBtn');
+
+        if (confirmBtn) {
+            confirmBtn.addEventListener('click', function() {
+                const enteredValue = manualInput ? manualInput.value.trim() : '';
+                if (!enteredValue) {
+                    showAlert('danger', 'Please enter Student ID or Roll Number.');
+                    return;
+                }
+                if (!lastScannedQR) {
+                    showAlert('danger', 'No QR scanned. Please scan a QR code first.');
+                    return;
+                }
+                markAttendance(lastScannedQR, enteredValue);
+            });
+        }
+
+        if (clearBtn) {
+            clearBtn.addEventListener('click', function() {
+                if (manualInput) manualInput.value = '';
+                manualInput.focus();
+            });
+        }
+
         <?php if ($session_id > 0): ?>
         html5QrcodeScanner = new Html5QrcodeScanner(
             "qr-reader", 
@@ -783,9 +836,6 @@ $page_title = "QR Code Scanner";
         );
         html5QrcodeScanner.render(onScanSuccess, onScanFailure);
         <?php endif; ?>
-
-        // Focus on student ID input
-        document.querySelector('[name="student_id"]')?.focus();
     });
 
     <?php endif; ?>
@@ -822,4 +872,5 @@ $page_title = "QR Code Scanner";
 // Clean up and flush output
 if (ob_get_level() > 0) {
     ob_end_flush();
-} 
+}
+?>
