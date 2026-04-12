@@ -421,7 +421,7 @@ $page_title = "QR Code Scanner";
                                 <!-- Manual Input Form -->
                                 <div class="mt-4 pt-4 border-top">
                                     <h5 class="mb-3"><i class="fas fa-keyboard me-2"></i> Manual Entry</h5>
-                                    <form method="POST" class="row g-3 justify-content-center">
+                                    <form method="POST" class="row g-3 justify-content-center" id="manualAttendanceForm">
                                         <div class="col-md-6">
                                             <div class="input-group input-group-lg">
                                                 <span class="input-group-text bg-primary text-white">
@@ -649,11 +649,24 @@ $page_title = "QR Code Scanner";
     // QR Scanner Functionality
     <?php if ($session_id > 0): ?>
     let html5QrcodeScanner = null;
+    let isProcessing = false;  // Prevents double submission
 
     function onScanSuccess(decodedText, decodedResult) {
-        // Stop scanning
+        if (isProcessing) return; // Already processing a scan
+        
+        // Pause scanner immediately
         if (html5QrcodeScanner) {
             html5QrcodeScanner.pause();
+        }
+        
+        // Disable manual form while processing
+        const manualForm = document.getElementById('manualAttendanceForm');
+        const manualInput = document.querySelector('[name="student_id"]');
+        const manualButton = document.querySelector('button[name="mark_attendance"]');
+        if (manualForm) {
+            manualForm.style.opacity = '0.5';
+            if (manualInput) manualInput.disabled = true;
+            if (manualButton) manualButton.disabled = true;
         }
         
         // Play success sound
@@ -667,28 +680,24 @@ $page_title = "QR Code Scanner";
             hour12: true 
         });
         
-        // Show scan result
+        // Show processing message (auto-submit will happen)
         document.getElementById('qr-reader-results').innerHTML = `
-            <div class="alert alert-success alert-dismissible fade show">
+            <div class="alert alert-info alert-dismissible fade show">
                 <div class="d-flex align-items-center">
-                    <i class="fas fa-check-circle fa-2x me-3"></i>
+                    <i class="fas fa-spinner fa-spin me-3"></i>
                     <div>
-                        <h5 class="mb-1">QR Code Scanned Successfully!</h5>
+                        <h6 class="mb-1">Processing scan...</h6>
                         <p class="mb-1">Student ID: <strong>${decodedText}</strong></p>
                         <p class="mb-2">Scan time: <strong>${scanTime}</strong></p>
-                        <div class="d-flex gap-2">
-                            <button onclick="markAttendance('${decodedText}')" class="btn btn-success">
-                                <i class="fas fa-check me-1"></i> Mark Attendance
-                            </button>
-                            <button onclick="resumeScanner()" class="btn btn-outline-secondary">
-                                <i class="fas fa-redo me-1"></i> Scan Again
-                            </button>
-                        </div>
+                        <small>Automatically marking attendance...</small>
                     </div>
                 </div>
                 <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
             </div>
         `;
+        
+        // Automatically mark attendance
+        markAttendance(decodedText);
     }
 
     function onScanFailure(error) {
@@ -719,18 +728,7 @@ $page_title = "QR Code Scanner";
     }
 
     function markAttendance(studentId) {
-        // Show processing message
-        document.getElementById('qr-reader-results').innerHTML = `
-            <div class="alert alert-info">
-                <div class="d-flex align-items-center">
-                    <i class="fas fa-spinner fa-spin me-3"></i>
-                    <div>
-                        <h6 class="mb-0">Processing...</h6>
-                        <p class="mb-0">Marking attendance for Student ID: <strong>${studentId}</strong></p>
-                    </div>
-                </div>
-            </div>
-        `;
+        isProcessing = true;
         
         // Submit form via AJAX
         const formData = new FormData();
@@ -738,33 +736,62 @@ $page_title = "QR Code Scanner";
         formData.append('session_id', <?php echo $session_id; ?>);
         formData.append('mark_attendance', '1');
         
-        fetch('faculty_scan.php', {
+        fetch(window.location.href, {
             method: 'POST',
             body: formData
         })
         .then(response => {
             if (response.redirected) {
+                // If redirect happens (session message), follow it
                 window.location.href = response.url;
             } else {
                 return response.text();
             }
         })
         .then(() => {
-            // Refresh page to show updated attendance
-            window.location.reload();
+            // Show success message and reload to refresh recent list
+            showAlert('success', `Attendance marked for Student ID: ${studentId}`);
+            // Reload page after a short delay so user sees the alert
+            setTimeout(() => {
+                window.location.reload();
+            }, 1500);
         })
         .catch(error => {
             console.error('Error:', error);
             showAlert('danger', 'Failed to mark attendance. Please try manually.');
-            resumeScanner();
+            resumeScanner();  // Resume scanner on error
+        })
+        .finally(() => {
+            isProcessing = false;
+            // Re-enable manual form after processing (if page not reloaded)
+            const manualInput = document.querySelector('[name="student_id"]');
+            const manualButton = document.querySelector('button[name="mark_attendance"]');
+            const manualForm = document.getElementById('manualAttendanceForm');
+            if (manualInput) manualInput.disabled = false;
+            if (manualButton) manualButton.disabled = false;
+            if (manualForm) manualForm.style.opacity = '1';
         });
     }
 
     function resumeScanner() {
+        // Clear any displayed results
         document.getElementById('qr-reader-results').innerHTML = '';
-        if (html5QrcodeScanner) {
+        // Resume scanning if scanner exists and not already processing
+        if (html5QrcodeScanner && !isProcessing) {
             html5QrcodeScanner.resume();
         }
+    }
+
+    // Prevent manual form submission while scanner is processing
+    const manualSubmitBtn = document.querySelector('button[name="mark_attendance"]');
+    if (manualSubmitBtn) {
+        manualSubmitBtn.addEventListener('click', function(e) {
+            if (isProcessing) {
+                e.preventDefault();
+                showAlert('warning', 'Please wait, a scan is already being processed.');
+                return false;
+            }
+        });
     }
 
     // Initialize scanner when page loads
@@ -798,7 +825,7 @@ $page_title = "QR Code Scanner";
         alertDiv.style.maxWidth = '400px';
         alertDiv.innerHTML = `
             <div class="d-flex align-items-center">
-                <i class="fas fa-${type === 'success' ? 'check-circle' : 'exclamation-triangle'} fa-lg me-3"></i>
+                <i class="fas fa-${type === 'success' ? 'check-circle' : type === 'warning' ? 'exclamation-triangle' : 'exclamation-triangle'} fa-lg me-3"></i>
                 <div class="flex-grow-1">
                     ${message}
                 </div>
