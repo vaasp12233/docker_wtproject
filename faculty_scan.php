@@ -182,10 +182,10 @@ $page_title = "QR Code Scanner";
 <div class="container-fluid py-4">
     <div class="row">
         <div class="col-12">
-            <!-- Back Button + Manual Attendance Link (now points to check_attendance.php) -->
+            <!-- Back Button + Check Attendance Link (updated from manual attendance) -->
             <div class="mb-4 d-flex justify-content-between align-items-center">
                 <a href="faculty_dashboard.php" class="btn btn-outline-secondary"><i class="fas fa-arrow-left me-2"></i> Back to Dashboard</a>
-                <a href="check_attendance.php" class="btn btn-outline-primary"><i class="fas fa-pen-alt me-2"></i> Manual Attendance</a>
+                <a href="check_attendance.php" class="btn btn-outline-primary"><i class="fas fa-eye me-2"></i> Check Attendance</a>
             </div>
 
             <!-- Page Header -->
