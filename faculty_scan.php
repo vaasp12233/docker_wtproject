@@ -188,11 +188,16 @@ $page_title = "QR Code Scanner";
 <div class="container-fluid py-4">
     <div class="row">
         <div class="col-12">
-            <!-- Back Button -->
-            <div class="mb-4">
+            <!-- Top Buttons: Back and View Attendance -->
+            <div class="mb-4 d-flex gap-2">
                 <a href="faculty_dashboard.php" class="btn btn-outline-secondary">
                     <i class="fas fa-arrow-left me-2"></i> Back to Dashboard
                 </a>
+                <?php if ($session_id > 0): ?>
+                <a href="check_attendance.php?session_id=<?php echo $session_id; ?>" class="btn btn-info text-white">
+                    <i class="fas fa-list-check me-2"></i> View Attendance Records
+                </a>
+                <?php endif; ?>
             </div>
 
             <!-- Page Header -->
