@@ -394,7 +394,12 @@ $page_title = "QR Code Scanner";
         showAlert('success', '<?php echo addslashes($_SESSION['scan_success']); unset($_SESSION['scan_success']); ?>');
     <?php endif; ?>
     <?php if (isset($_SESSION['scan_error'])): ?>
-        showAlert('danger', '<?php echo addslashes($_SESSION['scan_error']); unset($_SESSION['scan_error']); ?>');
+        showAlert('danger', '<?php echo addslashes($_SESSION['scan_error']); ?>');
+        // ADDITION: Show a native browser alert popup specifically for QR mismatch
+        <?php if (strpos($_SESSION['scan_error'], 'QR code does NOT belong') !== false): ?>
+            alert('Mismatch: <?php echo addslashes($_SESSION['scan_error']); ?>');
+        <?php endif; ?>
+        <?php unset($_SESSION['scan_error']); ?>
     <?php endif; ?>
 
     function showAlert(type, message) {
