@@ -395,7 +395,7 @@ $page_title = "QR Code Scanner";
     <?php endif; ?>
     <?php if (isset($_SESSION['scan_error'])): ?>
         showAlert('danger', '<?php echo addslashes($_SESSION['scan_error']); ?>');
-        // ADDITION: Show a native browser alert popup specifically for QR mismatch
+        // Also show native popup for mismatch (server-side backup)
         <?php if (strpos($_SESSION['scan_error'], 'QR code does NOT belong') !== false): ?>
             alert('Mismatch: <?php echo addslashes($_SESSION['scan_error']); ?>');
         <?php endif; ?>
@@ -474,6 +474,26 @@ $page_title = "QR Code Scanner";
                 const val = qrInput.value.trim();
                 if (!val) { showAlert('danger', 'Please enter ID or Roll Number.'); return; }
                 if (!lastScannedQR) { showAlert('danger', 'No QR scanned.'); return; }
+
+                // NEW: Client-side mismatch check for QR + Confirmation flow
+                // Extract expected roll number from QR (format: QR_ROLLNUMBER)
+                if (lastScannedQR.startsWith('QR_')) {
+                    const expectedRoll = lastScannedQR.substring(3).toUpperCase().trim();
+                    const enteredUpper = val.toUpperCase().trim();
+                    if (expectedRoll !== enteredUpper) {
+                        alert(`Mismatch!\nQR belongs to Roll Number: ${expectedRoll}\nYou entered: ${val}\n\nPlease enter the correct Roll Number.`);
+                        qrInput.value = '';
+                        qrInput.focus();
+                        return; // Do not submit
+                    }
+                } else {
+                    // Invalid QR format – should not happen, but handle gracefully
+                    showAlert('danger', 'Invalid QR code format. Please scan a valid QR.');
+                    resumeScanner();
+                    return;
+                }
+
+                // If match, proceed to server
                 markAttendanceFromQR(lastScannedQR, val);
             });
         }
